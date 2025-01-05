@@ -20,7 +20,7 @@ class VideoConverter():
             temp_video_path (str): Temporary path to save the processed video.
             final_result_video_path (str): Path to the final result of the processed video.
             watermark_coordinates (Coord): Coordinates of the watermark in normalized format.
-            is_preview (bool): If True, processes only a small portion of the video.
+            is_preview (bool): If True, processes only a small portion of the video (2%).
         """
         self.video_path: str = video_path
         self.temp_video_path: str = temp_video_path
@@ -86,11 +86,11 @@ class VideoConverter():
         if self.video_output is not None:
             self.video_output.release()
             
-        if os.path.exists(self.temp_video_path):
+        if os.path.exists(self.temp_video_path) and not self.preview:
             try:
-                os.remove(self.temp_video_path)
+               os.remove(self.temp_video_path)
             except Exception as e:
-                print(f"Failed to delete temporary file: {e}")
+               print(f"Failed to delete temporary file: {e}")
             
         if exc_type is not None:
             print(f"Exception occurred: {exc_value}")
@@ -127,5 +127,8 @@ class VideoConverter():
             current_frame += 1
             yield (current_frame / frames_to_process) * 100
         
-        # Copy the audio from the original file to the temporary one
-        os.system(f'ffmpeg -i {self.temp_video_path} -i {self.video_path} -c copy -map 0:v:0 -map 1:a:0 {self.final_result_video_path} -hide_banner -loglevel error')
+        self.video_capture.release()
+        self.video_output.release()
+        
+        if (not self.preview):
+            os.system(f'ffmpeg -i {self.temp_video_path} -i {self.video_path} -c copy -map 0:v:0 -map 1:a:0 {self.final_result_video_path} -hide_banner -loglevel error')
