@@ -1,7 +1,7 @@
 import os
-from typing import Any, Generator
 import cv2 as cv
 import numpy as np
+from typing import Any, Generator
 from coordinates import Coord
 
 
@@ -73,8 +73,7 @@ class VideoConverter():
             if self.video_capture is not None:
                 self.video_capture.release()
             raise e
-
-    
+ 
     def __exit__(self, exc_type, exc_value, traceback):
         """
         Cleans up resources when exiting the `with` block.
