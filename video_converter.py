@@ -10,7 +10,7 @@ class VideoConverter():
     A class to handle video processing tasks, such as removing watermarks.
     Supports context management for efficient resource handling.
     """
-    def __init__(self, video_path: str, temp_video_path: str, watermark_coordinates: Coord, is_preview: bool = False):
+    def __init__(self, video_path: str, temp_video_path: str, final_result_video_path: str, watermark_coordinates: Coord, is_preview: bool = False):
         """
         Initializes the VideoConverter with the video file path, temporary output file path,
         watermark coordinates, and a preview flag.
@@ -18,11 +18,13 @@ class VideoConverter():
         Args:
             video_path (str): Path to the input video file.
             temp_video_path (str): Temporary path to save the processed video.
+            final_result_video_path (str): Path to the final result of the processed video.
             watermark_coordinates (Coord): Coordinates of the watermark in normalized format.
             is_preview (bool): If True, processes only a small portion of the video.
         """
         self.video_path: str = video_path
         self.temp_video_path: str = temp_video_path
+        self.final_result_video_path: str = final_result_video_path
         self.coordinates: Coord = watermark_coordinates
         self.preview: bool = is_preview
         
@@ -124,3 +126,6 @@ class VideoConverter():
 
             current_frame += 1
             yield (current_frame / frames_to_process) * 100
+        
+        # Copy the audio from the original file to the temporary one
+        os.system(f'ffmpeg -i {self.temp_video_path} -i {self.video_path} -c copy -map 0:v:0 -map 1:a:0 {self.final_result_video_path} -hide_banner -loglevel error')
