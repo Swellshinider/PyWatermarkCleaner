@@ -138,7 +138,7 @@ by: Swellshinider
             if stop_event.is_set():
                 print("[Main] Stop event is set; waiting for threads to exit gracefully...")
 
-    print(f"[Main] All tasks completed {("in preview mode." if args.preview else ".")}")
+    print(f"[Main] All tasks completed{(" in preview mode." if args.preview else ".")}")
 
 if __name__ == "__main__":
     main()
