@@ -1,21 +1,69 @@
-import argparse
 import os
+import argparse
+import signal
+import threading
+import traceback
 from coordinates import Coord
 from video_converter import VideoConverter
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
+
+
+stop_event = threading.Event()
+
+
+def signal_handler():
+    """
+    Handle SIGINT (Ctrl + C). Set the stop_event,
+    signaling all threads to stop gracefully.
+    """
+    print("\n[Main] Caught! Requesting all tasks to stop!")
+    stop_event.set()
+    
+
+def process_video(input_path: str, watermark_coordinates: Coord, stop_event: threading.Event, is_preview: bool = False):
+    """
+    Process a single video, removing the watermark.
+    """
+    try:
+        base_name, _ = os.path.splitext(os.path.basename(input_path))
+        thread_id = threading.get_ident()
+        temp_video_path = f"temp_{base_name}.mp4"
+        final_video_path = f"result_{base_name}.mp4"
+
+        print(f"[Thread{thread_id}] Started processing '{input_path}'.")
+        
+        if (not os.path.exists(input_path)):
+            raise FileNotFoundError
+
+        with VideoConverter(
+            video_path=input_path,
+            temp_video_path=temp_video_path,
+            final_result_video_path=final_video_path,
+            watermark_coordinates=watermark_coordinates,
+            is_preview=is_preview
+        ) as converter:
+            for _ in converter.process(stop_event):
+                pass
+            
+        return (input_path, temp_video_path, final_video_path, thread_id)
+    except Exception:
+        return (input_path, temp_video_path, final_video_path, thread_id)
 
 def main():
+    signal.signal(signal.SIGINT, signal_handler)
     parser = argparse.ArgumentParser(
         description="PyWatermarkCleaner - Remove or mask watermarks from videos using inpainting.\nby: Swellshinider"
     )
-    parser.add_argument("-i", type=str, required=True, help="Specify the input video file.")
+    parser.add_argument("-i", nargs="+", type=str, required=True, help="Specify the input video file.")
     parser.add_argument("--x", type=int, required=True, help="X-coordinate of rectangle's top-left corner.")
     parser.add_argument("--y", type=int, required=True, help="Y-coordinate of rectangle's top-left corner.")
     parser.add_argument("--width", type=int, required=True, help="Width of the rectangle.")
     parser.add_argument("--height", type=int, required=True, help="Height of the rectangle.")
-    parser.add_argument("--preview", action="store_true", help="Enable preview mode.")
+    parser.add_argument("--thread", type=int, required=False, default=4, help="Maximum threads enabled to process multiple files.")
+    parser.add_argument("--preview", action="store_true", help="Enable preview mode. Generate a little portion of the video, then you can check if your coordinates match.")
 
     args = parser.parse_args()
-    
+    max_workers = args.thread
     watermark_coordinates = Coord(
         x=args.x,
         y=args.y,
@@ -23,21 +71,74 @@ def main():
         width=args.width
     )
     
-    base_name, _ = os.path.splitext(os.path.basename(args.i))
-    temp_video_path = f"temp_{base_name}.mp4"
-    final_video_path = f"result_{base_name}.mp4"
-    
-    with VideoConverter(
-        video_path=args.i,
-        temp_video_path=temp_video_path,
-        final_result_video_path=final_video_path,
-        watermark_coordinates=watermark_coordinates,
-        is_preview=args.preview
-    ) as converter:
-        for progress in converter.process():
-            print(f"Processing: {progress:0.2f}%", end="\r")
+    intro = r"""
+______      _    _       _                                 _    _____ _                            
+| ___ \    | |  | |     | |                               | |  /  __ \ |                           
+| |_/ /   _| |  | | __ _| |_ ___ _ __ _ __ ___   __ _ _ __| | _| /  \/ | ___  __ _ _ __   ___ _ __ 
+|  __/ | | | |/\| |/ _` | __/ _ \ '__| '_ ` _ \ / _` | '__| |/ / |   | |/ _ \/ _` | '_ \ / _ \ '__|
+| |  | |_| \  /\  / (_| | ||  __/ |  | | | | | | (_| | |  |   <| \__/\ |  __/ (_| | | | |  __/ |   
+\_|   \__, |\/  \/ \__,_|\__\___|_|  |_| |_| |_|\__,_|_|  |_|\_\\____/_|\___|\__,_|_| |_|\___|_|   
+       __/ |                                                                                       
+      |___/                                                                                                                                                                                                                                                                         
+by: Swellshinider
+    """
+    print(intro)
+    print(f"Starting concurrent processing (up to {max_workers} threads)...\n")
 
-    print("\nFinished!")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = []
+        for input_path in args.i:
+            futures.append(executor.submit(process_video, input_path, watermark_coordinates, stop_event, args.preview))
+
+        try:
+            while len(futures) > 0:
+                done, _ = wait(futures, timeout=1, return_when=FIRST_COMPLETED)
+                
+                if stop_event.is_set():
+                    break
+                
+                thread_id: int = 0
+                error_occurred: bool = False
+                finished: bool = False
+                video_current_path: str = ''
+                video_temp_path: str = ''
+                video_result_path: str = ''
+                
+                for fut in done:
+                    futures.remove(fut)
+                    try:
+                        file_path, temp_path, result_path, id = fut.result()
+                        video_current_path = file_path
+                        video_temp_path = temp_path
+                        video_result_path = result_path
+                        thread_id = id
+                        if stop_event.is_set():
+                            break
+                        finished = True
+                    except FileNotFoundError:
+                        finished = True
+                        error_occurred = True
+                    except Exception as e:
+                        finished = True
+                        error_occurred = True
+                        print(f"[Thread{thread_id}] Unexpected error processing '{video_current_path}': {e}")
+                        traceback.print_exception(type(e), e, e.__traceback__)
+                 
+                if (not error_occurred and finished):
+                    print(f"[Thread{thread_id}] Finished processing '{video_current_path}'.")
+                    print(f"         => Temp file : {video_temp_path}")
+                    
+                    if (not args.preview):
+                        print(f"         => Final file: {video_result_path}\n")   
+                    
+        except Exception as e:
+            print(f"[Main] Unexpected error: {e}")
+            traceback.print_exception(type(e), e, e.__traceback__)
+        finally:
+            if stop_event.is_set():
+                print("[Main] Stop event is set; waiting for threads to exit gracefully...")
+
+    print(f"[Main] All tasks completed {("in preview mode." if args.preview else ".")}")
 
 if __name__ == "__main__":
     main()

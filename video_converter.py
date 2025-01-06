@@ -1,4 +1,5 @@
 import os
+import threading
 import cv2 as cv
 import numpy as np
 from typing import Any, Generator
@@ -97,7 +98,7 @@ class VideoConverter():
             
         return False
 
-    def process(self) -> Generator[float, Any, None]:
+    def process(self, stop_event: threading.Event = None) -> Generator[float, Any, None]:
         """
         Processes the video by removing the watermark using the provided coordinates.
 
@@ -111,6 +112,9 @@ class VideoConverter():
 
         # Process each frame
         while True:
+            if stop_event and stop_event.is_set():
+                break
+            
             ret, frame = self.video_capture.read()
             
             # Stop if no more frames or preview limit is reached
@@ -130,5 +134,5 @@ class VideoConverter():
         self.video_capture.release()
         self.video_output.release()
         
-        if (not self.preview):
-            os.system(f'ffmpeg -i {self.temp_video_path} -i {self.video_path} -c copy -map 0:v:0 -map 1:a:0 {self.final_result_video_path} -hide_banner -loglevel error')
+        if (not self.preview) and (not stop_event or not stop_event.is_set()):
+            os.system(f'ffmpeg -i "{self.temp_video_path}" -i "{self.video_path}" -c copy -map 0:v:0 -map 1:a:0 "{self.final_result_video_path}" -hide_banner -loglevel error')
