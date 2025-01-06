@@ -45,7 +45,7 @@ Here we have our features and the planned features for upcoming versions of PyWa
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/yourusername/PyWatermarkCleaner.git
+   git clone https://github.com/Swellshinider/PyWatermarkCleaner.git
    cd PyWatermarkCleaner
    ```
 2. Install dependencies (e.g., OpenCV, NumPy):
