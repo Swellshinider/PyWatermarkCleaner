@@ -5,13 +5,13 @@ import threading
 import traceback
 from coordinates import Coord
 from video_converter import VideoConverter
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 
 
 stop_event = threading.Event()
 
 
-def signal_handler():
+def signal_handler(arg1, arg2):
     """
     Handle SIGINT (Ctrl + C). Set the stop_event,
     signaling all threads to stop gracefully.
@@ -20,13 +20,14 @@ def signal_handler():
     stop_event.set()
     
 
-def process_video(input_path: str, watermark_coordinates: Coord, stop_event: threading.Event, is_preview: bool = False):
+def process_video(input_path: str, watermark_coordinates: Coord, stop_event: threading.Event, only_one: bool, is_preview: bool = False):
     """
     Process a single video, removing the watermark.
     """
     try:
         base_name, _ = os.path.splitext(os.path.basename(input_path))
-        thread_id = threading.get_ident()
+        current_thread = threading.current_thread()
+        thread_id = current_thread.ident
         temp_video_path = f"temp_{base_name}.mp4"
         final_video_path = f"result_{base_name}.mp4"
 
@@ -42,9 +43,11 @@ def process_video(input_path: str, watermark_coordinates: Coord, stop_event: thr
             watermark_coordinates=watermark_coordinates,
             is_preview=is_preview
         ) as converter:
-            for _ in converter.process(stop_event):
-                pass
-            
+            for pct in converter.process(stop_event):
+                if only_one and current_thread.is_alive:
+                    print(f"[Thread{thread_id}] Processing '{pct:2f}%'", end='\r')
+                
+        print()    
         return (input_path, temp_video_path, final_video_path, thread_id)
     except Exception:
         return (input_path, temp_video_path, final_video_path, thread_id)
@@ -87,12 +90,14 @@ by: Swellshinider
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = []
+        only_one: bool = len(args.i) == 1
         for input_path in args.i:
-            futures.append(executor.submit(process_video, input_path, watermark_coordinates, stop_event, args.preview))
+            futures.append(executor.submit(process_video, input_path, watermark_coordinates, stop_event, only_one, args.preview))
 
         try:
+            
             while len(futures) > 0:
-                done, _ = wait(futures, timeout=1, return_when=FIRST_COMPLETED)
+                done, _ = wait(futures, timeout=1, return_when=FIRST_EXCEPTION)
                 
                 if stop_event.is_set():
                     break
@@ -125,7 +130,7 @@ by: Swellshinider
                         traceback.print_exception(type(e), e, e.__traceback__)
                  
                 if (not error_occurred and finished):
-                    print(f"[Thread{thread_id}] Finished processing '{video_current_path}'.")
+                    print(f"\n[Thread{thread_id}] Finished processing '{video_current_path}'.")
                     print(f"         => Temp file : {video_temp_path}")
                     
                     if (not args.preview):
