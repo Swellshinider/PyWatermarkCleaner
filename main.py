@@ -90,7 +90,7 @@ by: Swellshinider
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = []
-        only_one: bool = len(args.i) == 1
+        only_one: bool = len(args.i) == 1 or max_workers == 1
         for input_path in args.i:
             futures.append(executor.submit(process_video, input_path, watermark_coordinates, stop_event, only_one, args.preview))
 

@@ -108,7 +108,7 @@ class VideoConverter():
         wm_x, wm_y, wm_w, wm_h = self.coordinates.retrieve_normalized_coordinates(self.video_frame_width, self.video_frame_height)
 
         current_frame = 0
-        frames_to_process = int(self.video_total_frames * 0.02) if self.preview else self.video_total_frames
+        frames_to_process = min(int(self.video_fps * 5), self.video_total_frames) if self.preview else self.video_total_frames
 
         # Process each frame
         while True:
