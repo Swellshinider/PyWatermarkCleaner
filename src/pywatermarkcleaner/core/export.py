@@ -165,15 +165,12 @@ def _wait_for_ffmpeg(process: WritableProcess, token: CancellationToken) -> int:
 
 def _publish_without_overwrite(partial_path: Path, output_path: Path) -> None:
     """Atomically expose a sibling partial while refusing an existing destination."""
+    if output_path.exists():
+        raise ExportError(f"Output already exists and will not be overwritten: {output_path}")
     try:
-        os.link(partial_path, output_path)
-    except FileExistsError as error:
-        raise ExportError(
-            f"Output already exists and will not be overwritten: {output_path}"
-        ) from error
+        os.replace(partial_path, output_path)
     except OSError as error:
         raise ExportError(f"Could not finalize output '{output_path}': {error}") from error
-    partial_path.unlink()
 
 
 class VideoExporter:
@@ -233,6 +230,7 @@ class VideoExporter:
         command = self._command(request, metadata, profile, partial_path)
         process: WritableProcess | None = None
         frames_done = 0
+        published = False
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             process = self._process_factory(
@@ -256,27 +254,41 @@ class VideoExporter:
             process.stdin.close()
             token.raise_if_cancelled()
             exit_code = _wait_for_ffmpeg(process, token)
+            token.raise_if_cancelled()
             if exit_code != 0:
                 detail = _safe_stderr(process)
                 context = f": {detail}" if detail else ""
                 raise ExportError(f"FFmpeg export failed with exit code {exit_code}{context}")
             if not partial_path.is_file():
                 raise ExportError("FFmpeg completed without creating the partial output file.")
+            token.raise_if_cancelled()
             _publish_without_overwrite(partial_path, output_path)
+            published = True
+            token.raise_if_cancelled()
             progress(JobState.COMPLETED, frames_done, "Export completed")
             return output_path
         except CancelledError:
             if process is not None:
                 _terminate(process)
             partial_path.unlink(missing_ok=True)
+            if published:
+                output_path.unlink(missing_ok=True)
             raise
         except Exception as error:
+            detail = ""
             if process is not None:
                 _terminate(process)
+                try:
+                    detail = _safe_stderr(process)
+                except (OSError, ValueError):
+                    pass
             partial_path.unlink(missing_ok=True)
             if isinstance(error, ExportError):
                 raise
-            raise ExportError(f"Could not export '{request.input_path}': {error}") from error
+            context = f"; FFmpeg: {detail}" if detail else ""
+            raise ExportError(
+                f"Could not export '{request.input_path}': {error}{context}"
+            ) from error
 
     @staticmethod
     def _validate_frame(frame: NDArray[np.uint8], metadata: VideoMetadata) -> None:

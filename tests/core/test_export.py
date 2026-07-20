@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from io import BytesIO
 from pathlib import Path
@@ -226,6 +227,37 @@ def test_export_streams_bgr_rawvideo_maps_optional_audio_and_renames_atomically(
     assert all(event.frames_total == 3 for event in events)
 
 
+def test_export_publishes_with_atomic_replace_without_using_hard_links(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.touch()
+    output = tmp_path / "cleaned.mp4"
+    factory = ProcessFactory()
+    real_replace = os.replace
+    replacements: list[tuple[Path, Path]] = []
+
+    def disallow_link(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("hard links must not be used for publication")
+
+    def record_replace(source_path: str | Path, output_path: str | Path) -> None:
+        replacements.append((Path(source_path), Path(output_path)))
+        real_replace(source_path, output_path)
+
+    monkeypatch.setattr(os, "link", disallow_link)
+    monkeypatch.setattr(os, "replace", record_replace)
+
+    result = make_exporter(
+        factory, [np.zeros((2, 4, 3), dtype=np.uint8)]
+    ).export(export_request(source, output), CancellationToken())
+
+    partial = tmp_path / "cleaned.partial.mp4"
+    assert result == output
+    assert output.read_bytes() == b"partial"
+    assert not partial.exists()
+    assert replacements == [(partial, output)]
+
+
 def test_preview_export_caps_video_and_audio_duration(tmp_path: Path) -> None:
     source = tmp_path / "source.mp4"
     source.touch()
@@ -353,6 +385,82 @@ def test_cancellation_while_ffmpeg_finalizes_terminates_process(tmp_path: Path) 
     assert processes[0].terminated
     assert not output.exists()
     assert not (tmp_path / "cancelled.partial.mp4").exists()
+
+
+def test_cancellation_after_successful_wait_prevents_publication(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    source.touch()
+    output = tmp_path / "cancelled.mp4"
+    token = CancellationToken()
+
+    class CancelOnWaitProcess(FakeProcess):
+        def wait(self, timeout: float | None = None) -> int:
+            if not self.terminated:
+                token.cancel()
+            return 0
+
+    processes: list[CancelOnWaitProcess] = []
+
+    def create(command: list[str], **kwargs: Any) -> CancelOnWaitProcess:
+        process = CancelOnWaitProcess(command)
+        processes.append(process)
+        return process
+
+    exporter = VideoExporter(
+        media_reader=StaticMetadataReader(frames=1),
+        ffmpeg_resolver=lambda: Path("ffmpeg"),
+        process_factory=create,
+        frame_source=lambda _: iter([np.zeros((2, 4, 3), dtype=np.uint8)]),
+        inpaint_operation=lambda frame, region, options: frame,
+    )
+
+    with pytest.raises(CancelledError):
+        exporter.export(export_request(source, output), token)
+
+    assert processes[0].terminated
+    assert not output.exists()
+    assert not (tmp_path / "cancelled.partial.mp4").exists()
+
+
+def test_broken_pipe_failure_includes_sanitized_stderr_and_cleans_outputs(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.touch()
+    output = tmp_path / "failed.mp4"
+
+    class BrokenStdin(RecordingStdin):
+        def write(self, data: bytes) -> int:
+            raise BrokenPipeError("pipe closed")
+
+    class BrokenPipeProcess(FakeProcess):
+        def __init__(self, command: list[str]) -> None:
+            super().__init__(command)
+            self.stdin = BrokenStdin()
+            self.stderr = BytesIO(b"\x1b[31mencoder initialization failed")
+
+    processes: list[BrokenPipeProcess] = []
+
+    def create(command: list[str], **kwargs: Any) -> BrokenPipeProcess:
+        process = BrokenPipeProcess(command)
+        processes.append(process)
+        return process
+
+    exporter = VideoExporter(
+        media_reader=StaticMetadataReader(frames=1),
+        ffmpeg_resolver=lambda: Path("ffmpeg"),
+        process_factory=create,
+        frame_source=lambda _: iter([np.zeros((2, 4, 3), dtype=np.uint8)]),
+        inpaint_operation=lambda frame, region, options: frame,
+    )
+
+    with pytest.raises(ExportError, match="encoder initialization failed") as captured:
+        exporter.export(export_request(source, output), CancellationToken())
+
+    assert "\x1b" not in str(captured.value)
+    assert processes[0].terminated
+    assert not output.exists()
+    assert not (tmp_path / "failed.partial.mp4").exists()
 
 
 def test_real_ffmpeg_tiny_video_round_trip_when_available(tmp_path: Path) -> None:
