@@ -76,6 +76,30 @@ def test_normalized_to_pixels_uses_floor_for_origin_and_ceil_for_extent() -> Non
     assert result == PixelRegion(10, 19, 21, 31)
 
 
+def test_normalized_to_pixels_uses_literal_floor_immediately_below_boundary() -> None:
+    x = math.nextafter(0.5, -math.inf)
+
+    result = NormalizedRegion(x, 0.0, 0.25, 1.0).to_pixels(2, 1)
+
+    assert result == PixelRegion(0, 0, 2, 1)
+
+
+def test_normalized_to_pixels_uses_literal_ceil_immediately_above_boundary() -> None:
+    width = math.nextafter(0.2, math.inf)
+
+    result = NormalizedRegion(0.0, 0.0, width, 1.0).to_pixels(100, 1)
+
+    assert result == PixelRegion(0, 0, 21, 1)
+
+
+def test_normalized_to_pixels_maps_tiny_positive_extent_to_one_pixel() -> None:
+    width = math.nextafter(0.0, math.inf)
+
+    result = NormalizedRegion(0.0, 0.0, width, 1.0).to_pixels(1, 1)
+
+    assert result == PixelRegion(0, 0, 1, 1)
+
+
 def test_negative_cli_coordinates_are_resolved_from_right_and_bottom() -> None:
     result = NormalizedRegion.from_cli_pixels(-30, -20, 20, 10, 100, 50)
 

@@ -11,6 +11,25 @@ def _validate_frame_dimensions(frame_width: int, frame_height: int) -> None:
         raise ValueError("frame width and height must be positive")
 
 
+def _normalize_pixel_axis(
+    pixel_start: int, pixel_size: int, frame_size: int
+) -> tuple[float, float]:
+    """Represent exact pixel boundaries without changing arbitrary normalized inputs."""
+    normalized_start = pixel_start / frame_size
+    while floor(normalized_start * frame_size) < pixel_start:
+        normalized_start = nextafter(normalized_start, inf)
+    while floor(normalized_start * frame_size) > pixel_start:
+        normalized_start = nextafter(normalized_start, -inf)
+
+    normalized_size = pixel_size / frame_size
+    pixel_end = pixel_start + pixel_size
+    while ceil((normalized_start + normalized_size) * frame_size) > pixel_end:
+        normalized_size = nextafter(normalized_size, -inf)
+    while ceil((normalized_start + normalized_size) * frame_size) < pixel_end:
+        normalized_size = nextafter(normalized_size, inf)
+    return normalized_start, normalized_size
+
+
 @dataclass(frozen=True, slots=True)
 class PixelRegion:
     """A rectangular region expressed in frame pixels."""
@@ -38,12 +57,9 @@ class PixelRegion:
     def to_normalized(self, frame_width: int, frame_height: int) -> NormalizedRegion:
         """Clip and express this region as fractions of the frame dimensions."""
         clipped = self.clamped(frame_width, frame_height)
-        return NormalizedRegion(
-            clipped.x / frame_width,
-            clipped.y / frame_height,
-            clipped.width / frame_width,
-            clipped.height / frame_height,
-        )
+        x, width = _normalize_pixel_axis(clipped.x, clipped.width, frame_width)
+        y, height = _normalize_pixel_axis(clipped.y, clipped.height, frame_height)
+        return NormalizedRegion(x, y, width, height)
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,10 +91,10 @@ class NormalizedRegion:
         """Clip and convert using inclusive origins and exclusive extents."""
         _validate_frame_dimensions(frame_width, frame_height)
         clipped = self.clamped()
-        left = floor(nextafter(clipped.x * frame_width, inf))
-        top = floor(nextafter(clipped.y * frame_height, inf))
-        right = ceil(nextafter((clipped.x + clipped.width) * frame_width, -inf))
-        bottom = ceil(nextafter((clipped.y + clipped.height) * frame_height, -inf))
+        left = floor(clipped.x * frame_width)
+        top = floor(clipped.y * frame_height)
+        right = ceil((clipped.x + clipped.width) * frame_width)
+        bottom = ceil((clipped.y + clipped.height) * frame_height)
         return PixelRegion(left, top, right - left, bottom - top)
 
     @classmethod
