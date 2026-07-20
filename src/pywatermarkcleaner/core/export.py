@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import os
 import subprocess
+import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -163,13 +166,99 @@ def _wait_for_ffmpeg(process: WritableProcess, token: CancellationToken) -> int:
             continue
 
 
-def _publish_without_overwrite(partial_path: Path, output_path: Path) -> None:
-    """Atomically expose a sibling partial while refusing an existing destination."""
-    if output_path.exists():
-        raise ExportError(f"Output already exists and will not be overwritten: {output_path}")
+def _platform_name() -> str:
+    if os.name == "nt":
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    if sys.platform.startswith("linux"):
+        return "linux"
+    return "posix"
+
+
+def _linux_rename_no_replace(partial_path: Path, output_path: Path) -> bool:
     try:
-        os.replace(partial_path, output_path)
+        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
+    except (AttributeError, OSError):
+        return False
+    renameat2.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    renameat2.restype = ctypes.c_int
+    result = renameat2(
+        -100,
+        os.fsencode(partial_path),
+        -100,
+        os.fsencode(output_path),
+        1,
+    )
+    if result == 0:
+        return True
+    error_number = ctypes.get_errno()
+    unsupported = {
+        errno.ENOSYS,
+        errno.EINVAL,
+        getattr(errno, "ENOTSUP", errno.EINVAL),
+        getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+    }
+    if error_number in unsupported:
+        return False
+    raise OSError(error_number, os.strerror(error_number), output_path)
+
+
+def _macos_rename_no_replace(partial_path: Path, output_path: Path) -> bool:
+    try:
+        renamex_np = ctypes.CDLL(None, use_errno=True).renamex_np
+    except (AttributeError, OSError):
+        return False
+    renamex_np.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+    renamex_np.restype = ctypes.c_int
+    result = renamex_np(os.fsencode(partial_path), os.fsencode(output_path), 0x00000004)
+    if result == 0:
+        return True
+    error_number = ctypes.get_errno()
+    unsupported = {
+        errno.ENOSYS,
+        errno.EINVAL,
+        getattr(errno, "ENOTSUP", errno.EINVAL),
+        getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+    }
+    if error_number in unsupported:
+        return False
+    raise OSError(error_number, os.strerror(error_number), output_path)
+
+
+def _hardlink_no_replace(partial_path: Path, output_path: Path) -> None:
+    os.link(partial_path, output_path)
+    try:
+        partial_path.unlink()
     except OSError as error:
+        raise error
+
+
+def _publish_no_replace(partial_path: Path, output_path: Path) -> None:
+    """Atomically publish ``partial_path`` without replacing an existing destination."""
+    try:
+        platform = _platform_name()
+        if platform == "windows":
+            os.rename(partial_path, output_path)
+            return
+        if platform == "linux" and _linux_rename_no_replace(partial_path, output_path):
+            return
+        if platform == "macos" and _macos_rename_no_replace(partial_path, output_path):
+            return
+        _hardlink_no_replace(partial_path, output_path)
+    except OSError as error:
+        if isinstance(error, FileExistsError) or error.errno == errno.EEXIST or getattr(
+            error, "winerror", None
+        ) in {80, 183}:
+            raise ExportError(
+                f"Output already exists and will not be overwritten: {output_path}"
+            ) from error
         raise ExportError(f"Could not finalize output '{output_path}': {error}") from error
 
 
@@ -230,7 +319,6 @@ class VideoExporter:
         command = self._command(request, metadata, profile, partial_path)
         process: WritableProcess | None = None
         frames_done = 0
-        published = False
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             process = self._process_factory(
@@ -262,17 +350,13 @@ class VideoExporter:
             if not partial_path.is_file():
                 raise ExportError("FFmpeg completed without creating the partial output file.")
             token.raise_if_cancelled()
-            _publish_without_overwrite(partial_path, output_path)
-            published = True
-            token.raise_if_cancelled()
+            _publish_no_replace(partial_path, output_path)
             progress(JobState.COMPLETED, frames_done, "Export completed")
             return output_path
         except CancelledError:
             if process is not None:
                 _terminate(process)
             partial_path.unlink(missing_ok=True)
-            if published:
-                output_path.unlink(missing_ok=True)
             raise
         except Exception as error:
             detail = ""

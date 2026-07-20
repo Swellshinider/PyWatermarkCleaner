@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+import pywatermarkcleaner.core.export as export_module
 from pywatermarkcleaner.core.cancellation import CancellationToken, CancelledError
 from pywatermarkcleaner.core.exceptions import ExportError, FFmpegNotFoundError
 from pywatermarkcleaner.core.export import (
@@ -227,25 +228,26 @@ def test_export_streams_bgr_rawvideo_maps_optional_audio_and_renames_atomically(
     assert all(event.frames_total == 3 for event in events)
 
 
-def test_export_publishes_with_atomic_replace_without_using_hard_links(
+def test_export_publishes_with_atomic_no_replace_without_os_replace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "source.mp4"
     source.touch()
     output = tmp_path / "cleaned.mp4"
     factory = ProcessFactory()
-    real_replace = os.replace
-    replacements: list[tuple[Path, Path]] = []
+    real_rename = os.rename
+    renames: list[tuple[Path, Path]] = []
 
-    def disallow_link(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("hard links must not be used for publication")
+    def disallow_replace(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("clobbering os.replace must not be used")
 
-    def record_replace(source_path: str | Path, output_path: str | Path) -> None:
-        replacements.append((Path(source_path), Path(output_path)))
-        real_replace(source_path, output_path)
+    def record_rename(source_path: str | Path, output_path: str | Path) -> None:
+        renames.append((Path(source_path), Path(output_path)))
+        real_rename(source_path, output_path)
 
-    monkeypatch.setattr(os, "link", disallow_link)
-    monkeypatch.setattr(os, "replace", record_replace)
+    monkeypatch.setattr(export_module, "_platform_name", lambda: "windows", raising=False)
+    monkeypatch.setattr(os, "replace", disallow_replace)
+    monkeypatch.setattr(os, "rename", record_rename)
 
     result = make_exporter(
         factory, [np.zeros((2, 4, 3), dtype=np.uint8)]
@@ -255,7 +257,67 @@ def test_export_publishes_with_atomic_replace_without_using_hard_links(
     assert result == output
     assert output.read_bytes() == b"partial"
     assert not partial.exists()
-    assert replacements == [(partial, output)]
+    assert renames == [(partial, output)]
+
+
+def test_destination_appearing_during_publication_is_not_overwritten(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.touch()
+    output = tmp_path / "cleaned.mp4"
+    partial = tmp_path / "cleaned.partial.mp4"
+    factory = ProcessFactory()
+
+    def disallow_replace(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("clobbering os.replace must not be used")
+
+    def destination_wins(source_path: str | Path, output_path: str | Path) -> None:
+        Path(output_path).write_bytes(b"someone-else")
+        raise FileExistsError("destination appeared")
+
+    monkeypatch.setattr(export_module, "_platform_name", lambda: "windows", raising=False)
+    monkeypatch.setattr(os, "replace", disallow_replace)
+    monkeypatch.setattr(os, "rename", destination_wins)
+
+    with pytest.raises(ExportError, match="already exists"):
+        make_exporter(
+            factory, [np.zeros((2, 4, 3), dtype=np.uint8)]
+        ).export(export_request(source, output), CancellationToken())
+
+    assert output.read_bytes() == b"someone-else"
+    assert not partial.exists()
+
+
+def test_cancellation_after_publication_never_deletes_the_final_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.touch()
+    output = tmp_path / "cleaned.mp4"
+    token = CancellationToken()
+    factory = ProcessFactory()
+    publisher_name = (
+        "_publish_no_replace"
+        if hasattr(export_module, "_publish_no_replace")
+        else "_publish_without_overwrite"
+    )
+    real_publish = getattr(export_module, publisher_name)
+
+    def publish_then_compete(partial_path: Path, output_path: Path) -> None:
+        real_publish(partial_path, output_path)
+        output_path.write_bytes(b"someone-else")
+        token.cancel()
+
+    monkeypatch.setattr(export_module, publisher_name, publish_then_compete)
+
+    result = make_exporter(
+        factory, [np.zeros((2, 4, 3), dtype=np.uint8)]
+    ).export(export_request(source, output), token)
+
+    assert result == output
+    assert output.read_bytes() == b"someone-else"
+    assert not (tmp_path / "cleaned.partial.mp4").exists()
 
 
 def test_preview_export_caps_video_and_audio_duration(tmp_path: Path) -> None:
