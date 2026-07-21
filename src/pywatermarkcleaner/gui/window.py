@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListView,
     QMainWindow,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QSlider,
@@ -53,7 +54,7 @@ from PySide6.QtWidgets import (
 
 from pywatermarkcleaner.cli import default_output_directory
 from pywatermarkcleaner.core.geometry import NormalizedRegion, PixelRegion
-from pywatermarkcleaner.core.models import JobState
+from pywatermarkcleaner.core.models import FormatPolicy, JobState, PerformanceMode
 
 from .canvas import RepairCanvas
 from .diagnostics import build_diagnostics
@@ -319,10 +320,19 @@ class MainWindow(QMainWindow):
         self.radius_spin.setRange(1, 10)
         self.radius_spin.setValue(self.settings.radius)
         self.radius_spin.setAccessibleName("Inpainting radius")
+        self.performance_combo = QComboBox()
+        for mode in PerformanceMode:
+            self.performance_combo.addItem(mode.value.capitalize(), mode.value)
+        self.performance_combo.setAccessibleName("Performance mode")
+        self.performance_combo.setCurrentIndex(
+            max(0, self.performance_combo.findData(self.settings.performance))
+        )
         layout.addWidget(QLabel("Method"))
         layout.addWidget(self.method_combo)
         layout.addWidget(QLabel("Radius"))
         layout.addWidget(self.radius_spin)
+        layout.addWidget(QLabel("Performance"))
+        layout.addWidget(self.performance_combo)
 
         layout.addWidget(QLabel("Output folder"))
         output_row = QHBoxLayout()
@@ -407,6 +417,7 @@ class MainWindow(QMainWindow):
             spin.editingFinished.connect(self._numeric_region_changed)
         self.method_combo.currentIndexChanged.connect(self._method_changed)
         self.radius_spin.valueChanged.connect(self._radius_changed)
+        self.performance_combo.currentIndexChanged.connect(self._performance_changed)
         self.worker_spin.valueChanged.connect(self.settings.set_workers)
         self.output_button.clicked.connect(self.choose_output_folder)
         self.advanced_group.toggled.connect(self._advanced_toggled)
@@ -607,6 +618,9 @@ class MainWindow(QMainWindow):
         if self.settings.set_radius(radius) and self.preview_controller is not None:
             self.preview_controller.set_radius(radius)
 
+    def _performance_changed(self) -> None:
+        self.settings.set_performance(str(self.performance_combo.currentData()))
+
     def _advanced_toggled(self, expanded: bool) -> None:
         self.advanced_body.setVisible(expanded)
         self.settings.set_advanced_expanded(expanded)
@@ -644,18 +658,42 @@ class MainWindow(QMainWindow):
             self.apply_all_button,
             self.method_combo,
             self.radius_spin,
+            self.performance_combo,
         ):
             control.setEnabled(enabled)
 
     def clean_videos(self) -> None:
         if self.export_controller is None or not self.model.all_ready():
             return
+        format_policy = self._choose_batch_format_policy()
         self.export_controller.start(
             self.settings.output_folder,
             workers=self.settings.workers,
             method=self.settings.method,
             radius=self.settings.radius,
+            performance=self.settings.performance,
+            format_policy=format_policy,
         )
+
+    def _choose_batch_format_policy(self) -> FormatPolicy:
+        incompatible = any(
+            (item.metadata.container or item.metadata.path.suffix.lstrip(".")).lower()
+            in {"avi", "webm"}
+            for item in self.model.items()
+        )
+        if not incompatible:
+            return FormatPolicy.ORIGINAL
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Accelerated MP4 conversion")
+        dialog.setText("This batch contains AVI or WebM videos.")
+        dialog.setInformativeText("Choose one format policy for this batch.")
+        convert = dialog.addButton(
+            "Convert batch to accelerated MP4", QMessageBox.ButtonRole.AcceptRole
+        )
+        dialog.addButton("Keep original formats", QMessageBox.ButtonRole.RejectRole)
+        dialog.setDefaultButton(convert)
+        dialog.exec()
+        return FormatPolicy.MP4 if dialog.clickedButton() is convert else FormatPolicy.ORIGINAL
 
     def cancel_all(self) -> None:
         if self.export_controller is not None:
