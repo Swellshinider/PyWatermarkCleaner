@@ -21,5 +21,6 @@ dist/
 *.partial.*
 *.ps1
 .superpowers/
+**/superpowers/
 .DS_Store
 test-results/
