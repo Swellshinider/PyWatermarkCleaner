@@ -131,7 +131,10 @@ class WindowExportFake(QObject):
         self.closed = True
 
 
-def test_selected_item_cancel_action_tracks_state_and_wiring(qtbot, tmp_path: Path) -> None:
+@pytest.mark.parametrize("active_state", [JobState.QUEUED, JobState.PROCESSING])
+def test_active_selection_locks_request_controls_and_keeps_cancel(
+    qtbot, tmp_path: Path, active_state: JobState
+) -> None:
     model = QueueModel()
     source = tmp_path / "active.mp4"
     source.touch()
@@ -144,11 +147,38 @@ def test_selected_item_cancel_action_tracks_state_and_wiring(qtbot, tmp_path: Pa
     window.select_row(0)
     assert not window.cancel_item_button.isVisible()
 
-    model.update_job(0, state=JobState.PROCESSING, progress=20)
+    model.update_job(0, state=active_state, progress=20)
     qtbot.waitUntil(window.cancel_item_button.isVisible)
     assert window.cancel_item_button.isEnabled()
+    assert not window.remove_button.isEnabled()
+    for control in (
+        window.canvas,
+        window.x_spin,
+        window.y_spin,
+        window.width_spin,
+        window.height_spin,
+        window.apply_all_button,
+        window.method_combo,
+        window.radius_spin,
+    ):
+        assert not control.isEnabled()
+
     qtbot.mouseClick(window.cancel_item_button, Qt.MouseButton.LeftButton)
     assert exporter.canceled_rows == [0]
+    model.update_job(0, state=JobState.CANCELED)
+    qtbot.waitUntil(lambda: window.canvas.isEnabled())
+    assert window.remove_button.isEnabled()
+    assert not window.cancel_item_button.isVisible()
+    for control in (
+        window.x_spin,
+        window.y_spin,
+        window.width_spin,
+        window.height_spin,
+        window.apply_all_button,
+        window.method_combo,
+        window.radius_spin,
+    ):
+        assert control.isEnabled()
     exporter.active = False
     window.close()
 

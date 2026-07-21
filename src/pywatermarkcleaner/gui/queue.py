@@ -158,11 +158,12 @@ class QueueModel(QAbstractListModel):
 
     def set_region(self, row: int, region: NormalizedRegion | None) -> bool:
         item = self._items[row]
+        active = item.state in {JobState.QUEUED, JobState.PROCESSING}
         valid = self._valid_region(item.metadata, region)
         item.region = region if valid else None
-        if not valid:
+        if not valid and not active:
             item.state = JobState.NEEDS_REGION
-        elif item.state not in {JobState.QUEUED, JobState.PROCESSING}:
+        elif valid and not active:
             item.state = JobState.READY
         self._changed(row, QueueRole.REGION, QueueRole.STATE, QueueRole.STATE_LABEL)
         return valid

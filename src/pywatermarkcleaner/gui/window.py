@@ -617,20 +617,35 @@ class MainWindow(QMainWindow):
 
     def _update_row_actions(self) -> None:
         if self._selected_row is None or self._selected_row >= self.model.rowCount():
+            self._set_request_controls_enabled(False)
             self.retry_button.setEnabled(False)
             self.cancel_item_button.hide()
             self.show_button.setEnabled(False)
             self.remove_button.setEnabled(False)
             return
         item = self.model.item(self._selected_row)
-        self.remove_button.setEnabled(item.state not in {JobState.QUEUED, JobState.PROCESSING})
-        self.retry_button.setEnabled(item.state in {JobState.FAILED, JobState.CANCELED})
         active = item.state in {JobState.QUEUED, JobState.PROCESSING}
+        self._set_request_controls_enabled(not active)
+        self.remove_button.setEnabled(not active)
+        self.retry_button.setEnabled(item.state in {JobState.FAILED, JobState.CANCELED})
         self.cancel_item_button.setVisible(active)
         self.cancel_item_button.setEnabled(active)
         self.show_button.setEnabled(
             item.state == JobState.COMPLETED and item.output_path is not None
         )
+
+    def _set_request_controls_enabled(self, enabled: bool) -> None:
+        for control in (
+            self.canvas,
+            self.x_spin,
+            self.y_spin,
+            self.width_spin,
+            self.height_spin,
+            self.apply_all_button,
+            self.method_combo,
+            self.radius_spin,
+        ):
+            control.setEnabled(enabled)
 
     def clean_videos(self) -> None:
         if self.export_controller is None or not self.model.all_ready():

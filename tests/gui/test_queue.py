@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from threading import Event
 
+import pytest
 from PySide6.QtCore import Qt
 
 from pywatermarkcleaner.core.geometry import NormalizedRegion
@@ -117,9 +118,20 @@ def test_region_must_cover_two_by_two_source_pixels(tmp_path: Path) -> None:
     assert model.item(0).state == JobState.READY
     assert model.all_ready()
 
-    model.update_job(0, state=JobState.PROCESSING)
+
+@pytest.mark.parametrize("active_state", [JobState.QUEUED, JobState.PROCESSING])
+def test_invalid_region_cannot_replace_active_job_state(
+    tmp_path: Path, active_state: JobState
+) -> None:
+    source = tmp_path / f"{active_state.value}.mp4"
+    source.touch()
+    model = QueueModel()
+    model.add_metadata(metadata(source, width=50, height=50))
+    model.set_region(0, NormalizedRegion(0.9, 0.9, 0.04, 0.04))
+    model.update_job(0, state=active_state)
+
     assert not model.set_region(0, NormalizedRegion(0.98, 0.98, 0.01, 0.01))
-    assert model.item(0).state == JobState.NEEDS_REGION
+    assert model.item(0).state == active_state
 
 
 def test_failed_row_exposes_plain_accessible_remedy(tmp_path: Path) -> None:
