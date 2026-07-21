@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import Future
 from pathlib import Path
-from threading import get_ident
+from threading import Event, get_ident
 
 import numpy as np
 
@@ -62,7 +62,8 @@ def test_preview_sequences_and_suppresses_stale_results(qtbot, tmp_path: Path) -
     controller.set_method("navier-stokes")
     controller.set_radius(5)
     requests = holder["coordinator"].requests
-    assert [request.sequence for request in requests] == list(range(1, len(requests) + 1))
+    sequences = [request.sequence for request in requests]
+    assert sequences == sorted(set(sequences))
     assert requests[-1].timestamp_ms == 200
     assert requests[-1].options.radius == 5
     assert requests[-1].options.method.value == "navier-stokes"
@@ -112,8 +113,9 @@ def test_select_without_region_loads_source_frame_off_gui_thread(qtbot, tmp_path
     model.add_metadata(metadata(source))
     with qtbot.waitSignal(controller.frame_ready, timeout=2000) as ready:
         controller.select_item(model.item(0))
-    assert ready.args[0] is frame
-    assert ready.args[1] is None
+    assert ready.args[0] == source.resolve()
+    assert ready.args[1] is frame
+    assert ready.args[2] is None
     assert worker_threads and worker_threads[0] != main_thread
     controller.close()
 
@@ -132,7 +134,101 @@ def test_source_only_preview_respects_1280_long_edge(qtbot, tmp_path: Path) -> N
     model.add_metadata(metadata(source))
     with qtbot.waitSignal(controller.frame_ready, timeout=2000) as ready:
         controller.select_item(model.item(0))
-    assert ready.args[0].shape == (640, 1280, 3)
+    assert ready.args[0] == source.resolve()
+    assert ready.args[1].shape == (640, 1280, 3)
+    controller.close()
+
+
+def test_cleaned_results_are_owned_by_current_selection(qtbot, tmp_path: Path) -> None:
+    holder = {}
+
+    def factory(on_result, on_error):
+        holder["coordinator"] = FakeCoordinator(on_result, on_error)
+        return holder["coordinator"]
+
+    model = ready_model(tmp_path, 2)
+    controller = PreviewController(coordinator_factory=factory)
+    seen: list[Path] = []
+    controller.frame_ready.connect(lambda path, *_args: seen.append(path))
+    controller.select_item(model.item(0))
+    first = holder["coordinator"].requests[-1]
+    controller.select_item(model.item(1))
+    second = holder["coordinator"].requests[-1]
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+
+    holder["coordinator"].on_result(PreviewResult(first.sequence, first.timestamp_ms, frame, frame))
+    holder["coordinator"].on_result(
+        PreviewResult(second.sequence, second.timestamp_ms, frame, frame)
+    )
+    qtbot.waitUntil(lambda: seen == [model.item(1).metadata.path])
+    controller.close()
+
+
+def test_selecting_no_region_invalidates_older_cleaned_result(qtbot, tmp_path: Path) -> None:
+    holder = {}
+    release = Event()
+
+    def factory(on_result, on_error):
+        holder["coordinator"] = FakeCoordinator(on_result, on_error)
+        return holder["coordinator"]
+
+    class Reader:
+        def read_frame(self, _path: Path, _timestamp: int):
+            release.wait(1)
+            return np.zeros((8, 8, 3), dtype=np.uint8)
+
+    model = ready_model(tmp_path)
+    plain = tmp_path / "plain-selection.mp4"
+    plain.touch()
+    model.add_metadata(metadata(plain))
+    controller = PreviewController(coordinator_factory=factory, reader=Reader())
+    seen: list[Path] = []
+    controller.frame_ready.connect(lambda path, *_args: seen.append(path))
+    controller.select_item(model.item(0))
+    old_request = holder["coordinator"].requests[-1]
+    controller.select_item(model.item(1))
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    holder["coordinator"].on_result(PreviewResult(old_request.sequence, 0, frame, frame))
+    qtbot.wait(50)
+    assert seen == []
+    release.set()
+    controller.close()
+
+
+def test_source_results_are_owned_by_current_selection(qtbot, tmp_path: Path) -> None:
+    first_release = Event()
+    second_release = Event()
+    entered: dict[str, Event] = {"first.mp4": Event(), "second.mp4": Event()}
+
+    class Reader:
+        def read_frame(self, path: Path, _timestamp: int):
+            entered[path.name].set()
+            (first_release if path.name == "first.mp4" else second_release).wait(1)
+            value = 1 if path.name == "first.mp4" else 2
+            return np.full((8, 8, 3), value, dtype=np.uint8)
+
+    model = QueueModel()
+    for name in ("first.mp4", "second.mp4"):
+        path = tmp_path / name
+        path.touch()
+        model.add_metadata(metadata(path))
+    controller = PreviewController(reader=Reader())
+    seen: list[tuple[Path, int]] = []
+    controller.frame_ready.connect(
+        lambda path, frame, *_args: seen.append((path, int(frame[0, 0, 0])))
+    )
+    controller.select_item(model.item(0))
+    assert entered["first.mp4"].wait(1)
+    controller.select_item(model.item(1))
+    assert entered["second.mp4"].wait(1)
+    second_release.set()
+    qtbot.waitUntil(lambda: seen == [(model.item(1).metadata.path, 2)])
+    first_release.set()
+    qtbot.wait(50)
+    assert seen == [(model.item(1).metadata.path, 2)]
+    controller.clear_selection()
+    assert controller.selected_path is None
+    assert not controller.is_playing()
     controller.close()
 
 

@@ -14,6 +14,17 @@ TEXT = "#E7F0F4"
 CYAN = "#59B7C8"
 AMBER = "#E6A85C"
 
+REQUIRED_FONT_ASSETS = (
+    "BarlowSemiCondensed-SemiBold.ttf",
+    "AtkinsonHyperlegible-Regular.ttf",
+    "IBMPlexMono-Regular.ttf",
+)
+REQUIRED_FONT_LICENSES = (
+    "OFL-BarlowSemiCondensed.txt",
+    "OFL-AtkinsonHyperlegible.txt",
+    "OFL-IBMPlexMono.txt",
+)
+
 
 def assets_directory() -> Path:
     return Path(__file__).resolve().parents[1] / "assets"
@@ -68,6 +79,22 @@ def app_icon() -> QIcon:
 
 
 def validate_required_assets() -> None:
-    icon = assets_directory() / "icons" / "repair-aperture.svg"
+    assets = assets_directory()
+    icon = assets / "icons" / "repair-aperture.svg"
     if not icon.is_file() or QIcon(str(icon)).isNull():
         raise RuntimeError(f"Required app icon is missing or invalid: {icon}")
+    font_dir = assets / "fonts"
+    for name in REQUIRED_FONT_ASSETS:
+        font = font_dir / name
+        if not font.is_file() or font.stat().st_size <= 100:
+            raise RuntimeError(f"Required font asset is missing or empty: {font}")
+        if QFontDatabase.addApplicationFont(str(font)) < 0:
+            raise RuntimeError(f"Required font asset is invalid: {font}")
+    for name in REQUIRED_FONT_LICENSES:
+        license_path = font_dir / name
+        try:
+            license_text = license_path.read_text(encoding="utf-8")
+        except OSError as error:
+            raise RuntimeError(f"Required font license is missing: {license_path}") from error
+        if "SIL OPEN FONT LICENSE" not in license_text.upper():
+            raise RuntimeError(f"Required font license is invalid: {license_path}")

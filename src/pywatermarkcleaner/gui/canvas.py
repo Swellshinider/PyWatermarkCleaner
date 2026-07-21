@@ -58,6 +58,12 @@ class RepairCanvas(QWidget):
         self._source_size = source_size or (source.shape[1], source.shape[0])
         self.update()
 
+    def clear_frames(self) -> None:
+        self._source = None
+        self._cleaned = None
+        self.region = None
+        self.update()
+
     def set_region(self, region: NormalizedRegion | None) -> None:
         if region is None:
             self.region = None

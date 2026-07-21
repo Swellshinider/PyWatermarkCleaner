@@ -100,3 +100,39 @@ def test_selection_data_retains_timeline_region_output_and_error(tmp_path: Path)
         output,
         "disk full",
     )
+
+
+def test_region_must_cover_two_by_two_source_pixels(tmp_path: Path) -> None:
+    source = tmp_path / "tiny.mp4"
+    source.touch()
+    model = QueueModel()
+    model.add_metadata(metadata(source, width=50, height=50))
+
+    assert not model.set_region(0, NormalizedRegion(0.98, 0.98, 0.01, 0.01))
+    assert model.item(0).region is None
+    assert model.item(0).state == JobState.NEEDS_REGION
+    assert not model.all_ready()
+
+    assert model.set_region(0, NormalizedRegion(0.9, 0.9, 0.04, 0.04))
+    assert model.item(0).state == JobState.READY
+    assert model.all_ready()
+
+    model.update_job(0, state=JobState.PROCESSING)
+    assert not model.set_region(0, NormalizedRegion(0.98, 0.98, 0.01, 0.01))
+    assert model.item(0).state == JobState.NEEDS_REGION
+
+
+def test_failed_row_exposes_plain_accessible_remedy(tmp_path: Path) -> None:
+    source = tmp_path / "broken.mp4"
+    source.touch()
+    model = QueueModel()
+    model.add_metadata(metadata(source))
+    model.update_job(
+        0,
+        state=JobState.FAILED,
+        error="Disk is full. Choose another output folder and retry.",
+    )
+
+    accessible = model.data(model.index(0), Qt.ItemDataRole.AccessibleTextRole)
+    assert "Failed" in accessible
+    assert "Choose another output folder" in accessible

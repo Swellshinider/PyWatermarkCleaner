@@ -27,7 +27,7 @@ class _PreviewBridge(QObject):
 
 
 class _SourceSignals(QObject):
-    result = Signal(int, object, int)
+    result = Signal(int, object, object, int)
     error = Signal(int, object)
     finished = Signal(object)
 
@@ -56,7 +56,7 @@ class _SourceTask(QRunnable):
         except Exception as error:
             self.signals.error.emit(self.generation, error)
         else:
-            self.signals.result.emit(self.generation, frame, self.timestamp_ms)
+            self.signals.result.emit(self.generation, self.path, frame, self.timestamp_ms)
         finally:
             self.signals.finished.emit(self)
 
@@ -64,7 +64,7 @@ class _SourceTask(QRunnable):
 class PreviewController(QObject):
     """Own preview sequencing, stale suppression, and source-time playback."""
 
-    frame_ready = Signal(object, object, int)
+    frame_ready = Signal(object, object, object, int)
     failed = Signal(str)
     timestamp_changed = Signal(int)
     request_submitted = Signal(object)
@@ -87,12 +87,14 @@ class PreviewController(QObject):
         self._reader = reader or OpenCVMediaReader()
         self._thread_pool = thread_pool or QThreadPool.globalInstance()
         self._source_generation = 0
+        self._selection_generation = 0
         self._source_tasks: set[_SourceTask] = set()
         self._path: Path | None = None
         self._region: NormalizedRegion | None = None
         self._options = ProcessingOptions()
         self._sequence = 0
         self._latest_sequence = 0
+        self._request_owners: dict[int, tuple[int, Path]] = {}
         self.timestamp_ms = 0
         self._duration_ms = 0
         self._frame_step_ms = 33
@@ -106,6 +108,7 @@ class PreviewController(QObject):
         return LatestPreviewCoordinator(PreviewService(), on_result, on_error)
 
     def select_item(self, item: QueueItem) -> None:
+        self._invalidate_selection()
         self._path = item.metadata.path
         self._region = item.region
         self.timestamp_ms = item.timeline_position_ms
@@ -116,6 +119,26 @@ class PreviewController(QObject):
             self._load_source()
         else:
             self._submit()
+
+    @property
+    def selected_path(self) -> Path | None:
+        return self._path
+
+    def _invalidate_selection(self) -> None:
+        self.pause()
+        self._selection_generation += 1
+        self._source_generation += 1
+        self._sequence += 1
+        self._latest_sequence = self._sequence
+        self._request_owners.clear()
+
+    def clear_selection(self) -> None:
+        self._invalidate_selection()
+        self._path = None
+        self._region = None
+        self.timestamp_ms = 0
+        self._duration_ms = 0
+        self.timestamp_changed.emit(0)
 
     def _load_source(self) -> None:
         if self._path is None or self._closed:
@@ -128,10 +151,10 @@ class PreviewController(QObject):
         self._source_tasks.add(task)
         self._thread_pool.start(task)
 
-    @Slot(int, object, int)
-    def _source_result(self, generation: int, frame: object, timestamp_ms: int) -> None:
-        if not self._closed and generation == self._source_generation:
-            self.frame_ready.emit(frame, None, timestamp_ms)
+    @Slot(int, object, object, int)
+    def _source_result(self, generation: int, path: Path, frame: object, timestamp_ms: int) -> None:
+        if not self._closed and generation == self._source_generation and path == self._path:
+            self.frame_ready.emit(path, frame, None, timestamp_ms)
 
     @Slot(int, object)
     def _source_error(self, generation: int, error: Exception) -> None:
@@ -175,14 +198,26 @@ class PreviewController(QObject):
             self._sequence,
         )
         self._latest_sequence = request.sequence
+        self._request_owners = {request.sequence: (self._selection_generation, self._path)}
         self.request_submitted.emit(request)
         self._coordinator.submit(request)  # type: ignore[attr-defined]
 
     @Slot(object)
     def _accept_result(self, result: PreviewResult) -> None:
-        if self._closed or result.sequence != self._latest_sequence:
+        owner = self._request_owners.pop(result.sequence, None)
+        if (
+            self._closed
+            or result.sequence != self._latest_sequence
+            or owner != (self._selection_generation, self._path)
+            or self._path is None
+        ):
             return
-        self.frame_ready.emit(result.source_frame, result.cleaned_frame, result.timestamp_ms)
+        self.frame_ready.emit(
+            self._path,
+            result.source_frame,
+            result.cleaned_frame,
+            result.timestamp_ms,
+        )
 
     @Slot(object)
     def _accept_error(self, error: Exception) -> None:
@@ -211,5 +246,5 @@ class PreviewController(QObject):
         if self._closed:
             return
         self._closed = True
-        self.pause()
+        self._invalidate_selection()
         self._coordinator.close(wait=False)  # type: ignore[attr-defined]

@@ -7,7 +7,16 @@ from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
-from PySide6.QtCore import QModelIndex, QPersistentModelIndex, QRect, QSize, Qt, QUrl, Slot
+from PySide6.QtCore import (
+    QModelIndex,
+    QPersistentModelIndex,
+    QRect,
+    QSize,
+    Qt,
+    QTimer,
+    QUrl,
+    Slot,
+)
 from PySide6.QtGui import (
     QCloseEvent,
     QDesktopServices,
@@ -89,6 +98,19 @@ class QueueDelegate(QStyledItemDelegate):
         painter.drawText(
             rect.adjusted(10, 48, -8, -4), Qt.AlignmentFlag.AlignLeft, STATE_LABELS[state]
         )
+        error = str(index.data(int(QueueRole.ERROR)) or "")
+        if error:
+            painter.save()
+            remedy_rect = rect.adjusted(10, 68, -10, -8)
+            painter.setClipRect(remedy_rect)
+            painter.setPen(AMBER)
+            painter.drawText(
+                remedy_rect,
+                int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+                | int(Qt.TextFlag.TextWordWrap),
+                error,
+            )
+            painter.restore()
         if state in {JobState.QUEUED, JobState.PROCESSING}:
             bar = rect.adjusted(90, 54, -10, -10)
             painter.fillRect(bar, "#101A24")
@@ -99,7 +121,7 @@ class QueueDelegate(QStyledItemDelegate):
         _option: QStyleOptionViewItem,
         _index: QModelIndex | QPersistentModelIndex,
     ) -> QSize:
-        return QSize(220, 76)
+        return QSize(220, 112 if _index.data(int(QueueRole.ERROR)) else 76)
 
 
 _DEFAULT = object()
@@ -144,6 +166,7 @@ class MainWindow(QMainWindow):
         self._queue_drawer_open = False
         self._inspector_drawer_open = False
         self._allow_close = False
+        self._waiting_for_close = False
         self._build_ui()
         self._connect_signals()
         self._update_clean_enabled()
@@ -174,6 +197,8 @@ class MainWindow(QMainWindow):
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(1)
         body_layout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        self.body = body
+        self.body_layout = body_layout
         self.queue_panel = self._build_queue_panel()
         self.center_panel = self._build_center_panel()
         self.inspector_panel = self._build_inspector_panel()
@@ -208,12 +233,16 @@ class MainWindow(QMainWindow):
         actions = QHBoxLayout()
         self.remove_button = QPushButton("Remove")
         self.retry_button = QPushButton("Retry")
+        self.cancel_item_button = QPushButton("Cancel")
         self.show_button = QPushButton("Show in folder")
         self.remove_button.setAccessibleName("Remove selected video")
         self.retry_button.setAccessibleName("Retry selected export")
+        self.cancel_item_button.setAccessibleName("Cancel selected export")
         self.show_button.setAccessibleName("Show completed export in folder")
         actions.addWidget(self.remove_button)
         actions.addWidget(self.retry_button)
+        actions.addWidget(self.cancel_item_button)
+        self.cancel_item_button.hide()
         layout.addWidget(heading)
         layout.addWidget(self.add_button)
         layout.addWidget(self.queue_view, 1)
@@ -384,6 +413,7 @@ class MainWindow(QMainWindow):
         self.clean_button.clicked.connect(self.clean_videos)
         self.cancel_all_button.clicked.connect(self.cancel_all)
         self.retry_button.clicked.connect(self._retry_selected)
+        self.cancel_item_button.clicked.connect(self._cancel_selected)
         self.remove_button.clicked.connect(self._remove_selected)
         self.show_button.clicked.connect(self._show_selected_output)
         self.activity_toggle.toggled.connect(self._activity_toggled)
@@ -414,7 +444,17 @@ class MainWindow(QMainWindow):
     def _selection_changed(self, current: QModelIndex, _previous: QModelIndex) -> None:
         if not current.isValid():
             self._selected_row = None
-            self.canvas.set_region(None)
+            self.canvas.clear_frames()
+            self.timeline.blockSignals(True)
+            self.timeline.setRange(0, 0)
+            self.timeline.setValue(0)
+            self.timeline.blockSignals(False)
+            self._update_timecode()
+            self.play_button.setText("Play")
+            self.play_button.setAccessibleName("Play silent preview")
+            if self.preview_controller is not None:
+                self.preview_controller.clear_selection()
+            self._update_row_actions()
             return
         row = current.row()
         self._selected_row = row
@@ -423,6 +463,9 @@ class MainWindow(QMainWindow):
         self.timeline.setRange(0, max(0, round(item.metadata.duration_seconds * 1000)))
         self.timeline.setValue(item.timeline_position_ms)
         self.timeline.blockSignals(False)
+        self.play_button.setText("Play")
+        self.play_button.setAccessibleName("Play silent preview")
+        self.canvas.clear_frames()
         self.canvas._source_size = (item.metadata.width, item.metadata.height)
         self.canvas.set_region(item.region)
         self._set_region_spins(item.region)
@@ -457,7 +500,10 @@ class MainWindow(QMainWindow):
     def _canvas_region_changed(self, region: NormalizedRegion) -> None:
         if self._selected_row is None:
             return
-        self.model.set_region(self._selected_row, region)
+        if not self.model.set_region(self._selected_row, region):
+            self.canvas.set_region(None)
+            self.show_message("Region must cover at least 2×2 source pixels.")
+            return
         self._set_region_spins(region)
         if self.preview_controller is not None:
             self.preview_controller.set_region(region)
@@ -477,8 +523,14 @@ class MainWindow(QMainWindow):
         except ValueError as error:
             self.show_message(f"Region is not valid: {error}")
             return
-        self.canvas.set_region(region)
-        self._canvas_region_changed(region)
+        if self.model.set_region(self._selected_row, region):
+            self.canvas.set_region(region)
+            self._set_region_spins(region)
+            if self.preview_controller is not None:
+                self.preview_controller.set_region(region)
+        else:
+            self.canvas.set_region(None)
+            self.show_message("Region must cover at least 2×2 source pixels.")
 
     def apply_region_to_all(self) -> None:
         if self._selected_row is None:
@@ -487,9 +539,16 @@ class MainWindow(QMainWindow):
         if region is None:
             self.show_message("Draw a valid region before applying it to all videos.")
             return
+        rejected = 0
         for row in range(self.model.rowCount()):
-            self.model.set_region(row, region)
-        self.show_message("Applied the normalized region to every video.")
+            if not self.model.set_region(row, region):
+                rejected += 1
+        if rejected:
+            self.show_message(
+                f"Region was too small for {rejected} video(s); adjust it and apply again."
+            )
+        else:
+            self.show_message("Applied the normalized region to every video.")
 
     @Slot(int)
     def _timeline_changed(self, value: int) -> None:
@@ -526,11 +585,13 @@ class MainWindow(QMainWindow):
             self.play_button.setText("Pause")
             self.play_button.setAccessibleName("Pause silent preview")
 
-    @Slot(object, object, int)
-    def _frame_ready(self, source: object, cleaned: object, _timestamp: int) -> None:
+    @Slot(object, object, object, int)
+    def _frame_ready(self, path: Path, source: object, cleaned: object, _timestamp: int) -> None:
         if self._selected_row is None:
             return
         metadata = self.model.item(self._selected_row).metadata
+        if metadata.path != Path(path):
+            return
         self.canvas.set_frames(
             cast(NDArray[np.uint8], source),
             cast(NDArray[np.uint8] | None, cleaned),
@@ -557,12 +618,16 @@ class MainWindow(QMainWindow):
     def _update_row_actions(self) -> None:
         if self._selected_row is None or self._selected_row >= self.model.rowCount():
             self.retry_button.setEnabled(False)
+            self.cancel_item_button.hide()
             self.show_button.setEnabled(False)
             self.remove_button.setEnabled(False)
             return
         item = self.model.item(self._selected_row)
         self.remove_button.setEnabled(item.state not in {JobState.QUEUED, JobState.PROCESSING})
         self.retry_button.setEnabled(item.state in {JobState.FAILED, JobState.CANCELED})
+        active = item.state in {JobState.QUEUED, JobState.PROCESSING}
+        self.cancel_item_button.setVisible(active)
+        self.cancel_item_button.setEnabled(active)
         self.show_button.setEnabled(
             item.state == JobState.COMPLETED and item.output_path is not None
         )
@@ -585,9 +650,14 @@ class MainWindow(QMainWindow):
         if self.export_controller is not None and self._selected_row is not None:
             self.export_controller.retry(self._selected_row)
 
+    def _cancel_selected(self) -> None:
+        if self.export_controller is not None and self._selected_row is not None:
+            self.export_controller.cancel_item(self._selected_row)
+
     def _remove_selected(self) -> None:
         if self._selected_row is not None:
             row = self._selected_row
+            self.queue_view.setCurrentIndex(QModelIndex())
             self._selected_row = None
             self.model.remove_row(row)
 
@@ -654,14 +724,40 @@ class MainWindow(QMainWindow):
 
     def _update_responsive(self) -> None:
         compact = self.width() < 960
-        self._compact = compact
+        if compact != self._compact:
+            self._set_compact_layout(compact)
         self.drawer_bar.setVisible(compact)
         if compact:
             self.queue_panel.setVisible(self._queue_drawer_open)
             self.inspector_panel.setVisible(self._inspector_drawer_open)
+            self._position_drawers()
         else:
             self.queue_panel.show()
             self.inspector_panel.show()
+
+    def _set_compact_layout(self, compact: bool) -> None:
+        self._compact = compact
+        if compact:
+            self.body_layout.removeWidget(self.queue_panel)
+            self.body_layout.removeWidget(self.inspector_panel)
+            self.queue_panel.setParent(self.body)
+            self.inspector_panel.setParent(self.body)
+        else:
+            self.queue_panel.hide()
+            self.inspector_panel.hide()
+            self.body_layout.insertWidget(0, self.queue_panel)
+            self.body_layout.addWidget(self.inspector_panel)
+        self.body_layout.invalidate()
+        self.body_layout.activate()
+
+    def _position_drawers(self) -> None:
+        height = self.body.height()
+        self.queue_panel.setGeometry(0, 0, 240, height)
+        self.inspector_panel.setGeometry(max(0, self.body.width() - 280), 0, 280, height)
+        if self.queue_panel.isVisible():
+            self.queue_panel.raise_()
+        if self.inspector_panel.isVisible():
+            self.inspector_panel.raise_()
 
     def _toggle_queue_drawer(self, open_: bool) -> None:
         self._queue_drawer_open = open_
@@ -699,15 +795,21 @@ class MainWindow(QMainWindow):
         ):
             event.ignore()
             self.show_message("Canceling active exports before closing…")
+            if not self._waiting_for_close:
+                self._waiting_for_close = True
+                self.export_controller.all_finished.connect(self._finish_close)
             self.export_controller.cancel_all()
-            self.export_controller.all_finished.connect(self._finish_close)
+            if not self.export_controller.has_active_jobs():
+                self._finish_close()
             return
         self._cleanup()
         event.accept()
 
     def _finish_close(self) -> None:
+        if self._allow_close:
+            return
         self._allow_close = True
-        self.close()
+        QTimer.singleShot(0, self.close)
 
     def _cleanup(self) -> None:
         self.probe_controller.close()

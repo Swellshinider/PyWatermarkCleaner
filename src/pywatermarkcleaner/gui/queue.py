@@ -98,6 +98,11 @@ class QueueModel(QAbstractListModel):
         item = self._items[index.row()]
         if role == int(Qt.ItemDataRole.DisplayRole):
             return item.metadata.path.name
+        if role == int(Qt.ItemDataRole.AccessibleTextRole):
+            parts = [item.metadata.path.name, STATE_LABELS[item.state]]
+            if item.error:
+                parts.append(item.error)
+            return ". ".join(parts)
         values = {
             int(QueueRole.PATH): item.metadata.path,
             int(QueueRole.METADATA): item.metadata,
@@ -141,12 +146,26 @@ class QueueModel(QAbstractListModel):
     def index_for_path(self, path: Path) -> int | None:
         return self._paths.get(Path(path).resolve())
 
-    def set_region(self, row: int, region: NormalizedRegion | None) -> None:
+    @staticmethod
+    def _valid_region(metadata: VideoMetadata, region: NormalizedRegion | None) -> bool:
+        if region is None:
+            return False
+        try:
+            pixels = region.to_pixels(metadata.width, metadata.height)
+        except ValueError:
+            return False
+        return pixels.width >= 2 and pixels.height >= 2
+
+    def set_region(self, row: int, region: NormalizedRegion | None) -> bool:
         item = self._items[row]
-        item.region = region
-        if item.state not in {JobState.QUEUED, JobState.PROCESSING}:
-            item.state = JobState.READY if region is not None else JobState.NEEDS_REGION
+        valid = self._valid_region(item.metadata, region)
+        item.region = region if valid else None
+        if not valid:
+            item.state = JobState.NEEDS_REGION
+        elif item.state not in {JobState.QUEUED, JobState.PROCESSING}:
+            item.state = JobState.READY
         self._changed(row, QueueRole.REGION, QueueRole.STATE, QueueRole.STATE_LABEL)
+        return valid
 
     def set_timeline_position(self, row: int, timestamp_ms: int) -> None:
         self._items[row].timeline_position_ms = max(0, timestamp_ms)
@@ -186,7 +205,9 @@ class QueueModel(QAbstractListModel):
         self._paths = {item.metadata.path: number for number, item in enumerate(self._items)}
 
     def all_ready(self) -> bool:
-        return bool(self._items) and all(item.region is not None for item in self._items)
+        return bool(self._items) and all(
+            self._valid_region(item.metadata, item.region) for item in self._items
+        )
 
     def _changed(self, row: int, *roles: QueueRole) -> None:
         index = self.index(row)
