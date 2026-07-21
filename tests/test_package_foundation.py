@@ -17,11 +17,10 @@ def test_package_boundaries_are_importable() -> None:
     assert callable(gui.main)
 
 
-def test_placeholder_entry_points_return_deliberate_errors(
+def test_cli_placeholder_entry_point_returns_deliberate_error(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert cli.main() == 2
-    assert gui.main() == 2
 
     captured = capsys.readouterr()
-    assert "not implemented yet" in captured.err
+    assert "required" in captured.err

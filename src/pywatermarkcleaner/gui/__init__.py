@@ -1,9 +1,11 @@
 """Desktop application boundary."""
 
-import sys
+from __future__ import annotations
+
+from collections.abc import Sequence
 
 
-def main() -> int:
-    """Return a deliberate error until the desktop-v1 GUI is implemented."""
-    print("pywatermarkcleaner-gui: the desktop-v1 GUI is not implemented yet", file=sys.stderr)
-    return 2
+def main(argv: Sequence[str] | None = None) -> int:
+    from .app import main as application_main
+
+    return application_main(argv)
