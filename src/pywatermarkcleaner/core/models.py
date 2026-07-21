@@ -20,6 +20,21 @@ class InpaintMethod(StrEnum):
     NAVIER_STOKES = "navier-stokes"
 
 
+class PerformanceMode(StrEnum):
+    """Speed/quality trade-off used by video encoders."""
+
+    FAST = "fast"
+    BALANCED = "balanced"
+    QUALITY = "quality"
+
+
+class FormatPolicy(StrEnum):
+    """Whether a batch keeps source containers or is converted to MP4."""
+
+    ORIGINAL = "original"
+    MP4 = "mp4"
+
+
 @dataclass(frozen=True)
 class ProcessingOptions:
     """User-selectable inpainting settings."""
@@ -126,9 +141,18 @@ class ExportRequest:
     region: NormalizedRegion
     options: ProcessingOptions
     preview_seconds: float | None = None
+    performance: PerformanceMode = PerformanceMode.BALANCED
+    format_policy: FormatPolicy = FormatPolicy.ORIGINAL
+    concurrent_exports: int = 1
 
     def __post_init__(self) -> None:
         if self.preview_seconds is not None and (
             not isfinite(self.preview_seconds) or self.preview_seconds <= 0
         ):
             raise ValueError("preview duration must be positive and finite")
+        if (
+            isinstance(self.concurrent_exports, bool)
+            or not isinstance(self.concurrent_exports, int)
+            or self.concurrent_exports < 1
+        ):
+            raise ValueError("concurrent exports must be a positive integer")

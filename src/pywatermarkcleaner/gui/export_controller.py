@@ -12,8 +12,10 @@ from pywatermarkcleaner.core.cancellation import CancelledError
 from pywatermarkcleaner.core.export import VideoExporter, resolve_export_path
 from pywatermarkcleaner.core.models import (
     ExportRequest,
+    FormatPolicy,
     InpaintMethod,
     JobState,
+    PerformanceMode,
     ProcessingOptions,
     ProgressEvent,
 )
@@ -53,6 +55,8 @@ class ExportController(QObject):
         self._futures: dict[Path, Future[Path]] = {}
         self._output_folder = Path.cwd()
         self._options = ProcessingOptions()
+        self._performance = PerformanceMode.BALANCED
+        self._format_policy = FormatPolicy.ORIGINAL
         self._closed = False
         self._bridge = _ExportBridge(self)
         self._bridge.progress.connect(self._on_progress, Qt.ConnectionType.QueuedConnection)
@@ -65,12 +69,24 @@ class ExportController(QObject):
         workers: int,
         method: str | InpaintMethod = InpaintMethod.TELEA,
         radius: int = 3,
+        performance: str | PerformanceMode = PerformanceMode.BALANCED,
+        format_policy: str | FormatPolicy = FormatPolicy.ORIGINAL,
     ) -> None:
         if self._closed:
             return
         self._output_folder = Path(output_folder)
         selected_method = method if isinstance(method, InpaintMethod) else InpaintMethod(method)
         self._options = ProcessingOptions(selected_method, radius)
+        self._performance = (
+            performance
+            if isinstance(performance, PerformanceMode)
+            else PerformanceMode(performance)
+        )
+        self._format_policy = (
+            format_policy
+            if isinstance(format_policy, FormatPolicy)
+            else FormatPolicy(format_policy)
+        )
         if self._scheduler is None:
             self._scheduler = self.scheduler_factory(self.exporter, workers)
         for row, item in enumerate(self.model.items()):
@@ -88,12 +104,19 @@ class ExportController(QObject):
         item = self.model.item(row)
         if item.region is None:
             return
-        output_path = self.output_resolver(item.metadata.path, self._output_folder)
+        resolver_input = (
+            item.metadata.path.with_suffix(".mp4")
+            if self._format_policy is FormatPolicy.MP4
+            else item.metadata.path
+        )
+        output_path = self.output_resolver(resolver_input, self._output_folder)
         request = ExportRequest(
             item.metadata.path,
             output_path,
             item.region,
             self._options,
+            performance=self._performance,
+            format_policy=self._format_policy,
         )
         path = item.metadata.path
 

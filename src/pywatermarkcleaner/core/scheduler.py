@@ -47,6 +47,7 @@ class JobScheduler:
         ):
             raise ValueError(f"workers must be an integer from 1 to {maximum}")
         self._exporter = exporter
+        self._max_workers = max_workers
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="export")
         self._lock = RLock()
         self._next_id = 1
@@ -71,7 +72,12 @@ class JobScheduler:
 
             future = cast(
                 Future[Path],
-                self._executor.submit(self._exporter.export, request, token, report),
+                self._executor.submit(
+                    self._exporter.export,
+                    replace(request, concurrent_exports=self._max_workers),
+                    token,
+                    report,
+                ),
             )
             self._jobs[job_id] = (future, token)
 

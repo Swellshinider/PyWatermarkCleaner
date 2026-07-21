@@ -48,13 +48,13 @@ Portable release archives include Python, Qt, OpenCV, and FFmpeg. They are unsig
 2. Select a video and drag a rectangle over the watermark.
 3. Move or resize the repair aperture. Arrow keys nudge one source pixel; Shift+arrow nudges ten.
 4. Scrub or play the silent optimized preview. Hold Space to reveal the original region.
-5. Configure Telea/Navier-Stokes, radius, output folder, and worker count as needed.
+5. Configure Telea/Navier-Stokes, radius, Fast/Balanced/Quality, output folder, and worker count as needed.
 6. Use **Apply to all** to copy the normalized region to videos with compatible dimensions.
 7. Choose **Clean videos**. Completed outputs can be revealed from the queue.
 
 The preview is downscaled to a maximum 1280-pixel long edge to remain responsive and may drop visual frames when processing falls behind. Exports always process full-resolution frames.
 
-Outputs default to the platform Videos/Movies folder under `PyWatermarkCleaner` and use `<name>_cleaned.<ext>`, then `_2`, `_3`, and so on. Inputs are never overwritten. MP4/MOV/M4V/MKV use H.264, AVI uses MPEG-4, and WebM uses VP9; unsupported containers visibly fall back to MP4.
+Outputs default to the platform Videos/Movies folder under `PyWatermarkCleaner` and use `<name>_cleaned.<ext>`, then `_2`, `_3`, and so on. Inputs are never overwritten. MP4/MOV/M4V/MKV use the first working H.264 encoder among NVENC, QSV, AMF, VideoToolbox, and x264. AVI uses MPEG-4 and WebM uses VP9. A batch containing AVI or WebM can instead be converted to accelerated MP4; unsupported containers visibly fall back to MP4.
 
 ## Command line
 
@@ -64,7 +64,8 @@ The installed command and the legacy `python main.py` entry point are equivalent
 pywatermarkcleaner \
   -i video.mp4 second.mov \
   --x 1280 --y 40 --width 420 --height 120 \
-  --method telea --radius 3 --workers 2
+  --method telea --radius 3 --workers 2 \
+  --performance balanced --format-policy original
 ```
 
 Negative `--x` and `--y` count from the right and bottom of each input independently. Useful options:
@@ -75,8 +76,11 @@ Negative `--x` and `--y` count from the right and bottom of each input independe
 --thread, --workers INT         Concurrent jobs (1 through min(4, CPU count))
 --method METHOD                 telea or navier-stokes
 --radius INT                    Inpainting radius, 1 through 10
+--performance MODE              fast, balanced, or quality (default: balanced)
+--format-policy POLICY          original or mp4 (default: original)
 --output-dir PATH               Destination folder
 --preview                       Export only the first five seconds
+--benchmark                     Report encoder FPS and real-time factor
 --version                       Print the application version
 ```
 

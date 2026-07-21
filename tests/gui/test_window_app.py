@@ -10,8 +10,9 @@ from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QStyle, QStyleOptionViewItem
 
 from pywatermarkcleaner.core.geometry import NormalizedRegion
-from pywatermarkcleaner.core.models import JobState, VideoMetadata
+from pywatermarkcleaner.core.models import FormatPolicy, JobState, VideoMetadata
 from pywatermarkcleaner.gui import theme
+from pywatermarkcleaner.gui import window as window_module
 from pywatermarkcleaner.gui.app import main
 from pywatermarkcleaner.gui.diagnostics import build_diagnostics
 from pywatermarkcleaner.gui.preview_controller import PreviewController
@@ -31,6 +32,7 @@ def test_settings_defaults_valid_ranges_and_persistence(tmp_path: Path) -> None:
     assert settings.radius == 3
     assert settings.workers == 1
     assert settings.set_radius(7)
+    assert settings.set_performance("quality")
     assert not settings.set_radius(20)
     assert settings.set_workers(settings.worker_max)
     assert not settings.set_workers(settings.worker_max + 1)
@@ -38,8 +40,62 @@ def test_settings_defaults_valid_ranges_and_persistence(tmp_path: Path) -> None:
 
     restored = AppSettings(default_output=tmp_path / "Elsewhere")
     assert restored.radius == 7
+    assert restored.performance == "quality"
     assert restored.workers == settings.worker_max
     assert restored.output_folder == (tmp_path / "Exports").resolve()
+
+
+def test_format_modal_only_appears_for_avi_or_webm(qtbot, tmp_path: Path, monkeypatch) -> None:
+    mp4_model = QueueModel()
+    mp4_path = tmp_path / "plain.mp4"
+    mp4_path.touch()
+    mp4_model.add_metadata(metadata(mp4_path))
+    mp4_window = MainWindow(model=mp4_model, preview_controller=None, export_controller=None)
+    qtbot.addWidget(mp4_window)
+
+    class Dialog:
+        class ButtonRole:
+            AcceptRole = 1
+            RejectRole = 2
+
+        shown = 0
+
+        def __init__(self, _parent) -> None:
+            self.convert = object()
+
+        def setWindowTitle(self, _text) -> None:
+            pass
+
+        def setText(self, _text) -> None:
+            pass
+
+        def setInformativeText(self, _text) -> None:
+            pass
+
+        def addButton(self, _text, role):
+            return self.convert if role == self.ButtonRole.AcceptRole else object()
+
+        def setDefaultButton(self, _button) -> None:
+            pass
+
+        def exec(self) -> None:
+            Dialog.shown += 1
+
+        def clickedButton(self):
+            return self.convert
+
+    monkeypatch.setattr(window_module, "QMessageBox", Dialog)
+    assert mp4_window._choose_batch_format_policy() is FormatPolicy.ORIGINAL
+    assert Dialog.shown == 0
+
+    webm_model = QueueModel()
+    webm_path = tmp_path / "source.webm"
+    webm_path.touch()
+    webm_model.add_metadata(VideoMetadata(webm_path, 100, 50, 25.0, 250, 10.0, "webm"))
+    webm_window = MainWindow(model=webm_model, preview_controller=None, export_controller=None)
+    qtbot.addWidget(webm_window)
+    assert webm_window._choose_batch_format_policy() is FormatPolicy.MP4
+    assert Dialog.shown == 1
 
 
 def test_window_selection_restore_apply_all_clean_enablement_and_output_binding(

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings
 
-from pywatermarkcleaner.core.models import InpaintMethod
+from pywatermarkcleaner.core.models import InpaintMethod, PerformanceMode
 from pywatermarkcleaner.core.scheduler import max_allowed_workers
 
 
@@ -21,6 +21,14 @@ class AppSettings:
             else InpaintMethod.TELEA.value
         )
         self.radius = self._bounded_int("radius", 3, 1, 10)
+        stored_performance = str(
+            self._settings.value("performance", PerformanceMode.BALANCED.value)
+        )
+        self.performance = (
+            stored_performance
+            if stored_performance in {mode.value for mode in PerformanceMode}
+            else PerformanceMode.BALANCED.value
+        )
         self.workers = self._bounded_int("workers", 1, 1, self.worker_max)
         stored_folder = self._settings.value("output_folder")
         self.output_folder = Path(stored_folder or default_output).expanduser().resolve()
@@ -45,6 +53,13 @@ class AppSettings:
             return False
         self.radius = value
         self._settings.setValue("radius", value)
+        return True
+
+    def set_performance(self, value: str) -> bool:
+        if value not in {mode.value for mode in PerformanceMode}:
+            return False
+        self.performance = value
+        self._settings.setValue("performance", value)
         return True
 
     def set_workers(self, value: int) -> bool:

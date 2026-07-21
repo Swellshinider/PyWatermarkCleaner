@@ -11,8 +11,10 @@ from pywatermarkcleaner.core.exceptions import ExportError, MediaError
 from pywatermarkcleaner.core.geometry import NormalizedRegion
 from pywatermarkcleaner.core.models import (
     ExportRequest,
+    FormatPolicy,
     InpaintMethod,
     JobState,
+    PerformanceMode,
     ProgressEvent,
     VideoMetadata,
 )
@@ -81,6 +83,26 @@ def test_parser_defaults_match_cli_contract() -> None:
     assert arguments.output_dir is None
     assert arguments.method == InpaintMethod.TELEA
     assert arguments.radius == 3
+    assert arguments.performance is PerformanceMode.BALANCED
+    assert arguments.format_policy is FormatPolicy.ORIGINAL
+    assert arguments.benchmark is False
+
+
+def test_parser_accepts_performance_format_policy_and_benchmark() -> None:
+    arguments = cli.build_parser(maximum_workers=4).parse_args(
+        [
+            *required_arguments(),
+            "--performance",
+            "fast",
+            "--format-policy",
+            "mp4",
+            "--benchmark",
+        ]
+    )
+
+    assert arguments.performance is PerformanceMode.FAST
+    assert arguments.format_policy is FormatPolicy.MP4
+    assert arguments.benchmark is True
 
 
 @pytest.mark.parametrize(

@@ -6,6 +6,7 @@ import argparse
 import ctypes
 import os
 import sys
+import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
@@ -19,8 +20,10 @@ from .core.geometry import NormalizedRegion
 from .core.media import OpenCVMediaReader
 from .core.models import (
     ExportRequest,
+    FormatPolicy,
     InpaintMethod,
     JobState,
+    PerformanceMode,
     ProcessingOptions,
     ProgressEvent,
     VideoMetadata,
@@ -196,6 +199,25 @@ def build_parser(maximum_workers: int | None = None) -> argparse.ArgumentParser:
         default=3,
         help="inpainting radius from 1 to 10",
     )
+    parser.add_argument(
+        "--performance",
+        type=PerformanceMode,
+        choices=tuple(PerformanceMode),
+        default=PerformanceMode.BALANCED,
+        help="encoding profile: fast, balanced, or quality",
+    )
+    parser.add_argument(
+        "--format-policy",
+        type=FormatPolicy,
+        choices=tuple(FormatPolicy),
+        default=FormatPolicy.ORIGINAL,
+        help="keep original containers or convert the entire batch to MP4",
+    )
+    parser.add_argument(
+        "--benchmark",
+        action="store_true",
+        help="report encoder throughput after each export",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
 
@@ -219,8 +241,30 @@ def _reserve_output_path(
         index += 1
 
 
-def _progress_reporter(path: Path) -> Callable[[ProgressEvent], None]:
+def _progress_reporter(
+    path: Path, *, benchmark: bool = False, source_fps: float = 0.0
+) -> Callable[[ProgressEvent], None]:
+    started = 0.0
+    encoder = "unknown"
+
     def report(event: ProgressEvent) -> None:
+        nonlocal started, encoder
+        if event.state == JobState.QUEUED and event.message:
+            print(f"{path}: {event.message}")
+            started = time.perf_counter()
+            marker = "encoder: "
+            if marker in event.message:
+                encoder = event.message.split(marker, 1)[1].split(";", 1)[0]
+            return
+        if event.state == JobState.COMPLETED and benchmark and started:
+            elapsed = max(time.perf_counter() - started, 1e-9)
+            throughput = event.frames_done / elapsed
+            realtime = throughput / source_fps if source_fps > 0 else 0.0
+            print(
+                f"{path}: Benchmark encoder={encoder}, FPS={throughput:.2f}, "
+                f"realtime={realtime:.2f}x"
+            )
+            return
         if event.state != JobState.PROCESSING:
             return
         if event.frames_total:
@@ -253,6 +297,7 @@ def _run(
         return 1
 
     requests: list[ExportRequest] = []
+    source_fps_by_path: dict[Path, float] = {}
     reserved_outputs: set[Path] = set()
     had_validation_error = False
     had_processing_failure = False
@@ -286,10 +331,15 @@ def _run(
             continue
 
         profile = profile_for_suffix(input_path.suffix)
-        if profile.notice is not None:
+        if arguments.format_policy is FormatPolicy.ORIGINAL and profile.notice is not None:
             print(f"{input_path}: {profile.notice}", file=sys.stderr)
         try:
-            candidate = Path(output_path_resolver(input_path, output_directory))
+            resolver_input = (
+                input_path.with_suffix(".mp4")
+                if arguments.format_policy is FormatPolicy.MP4
+                else input_path
+            )
+            candidate = Path(output_path_resolver(resolver_input, output_directory))
             output_path = _reserve_output_path(input_path, candidate, reserved_outputs)
             if output_path.resolve() == input_path.resolve():
                 raise ValueError("the output path would overwrite the input")
@@ -305,8 +355,11 @@ def _run(
                 region=region,
                 options=options,
                 preview_seconds=5.0 if arguments.preview else None,
+                performance=arguments.performance,
+                format_policy=arguments.format_policy,
             )
         )
+        source_fps_by_path[input_path] = source_metadata.fps
 
     scheduler: Scheduler | None = None
     interrupted = False
@@ -317,7 +370,12 @@ def _run(
             for request in requests:
                 try:
                     job = scheduler.submit(
-                        request, on_progress=_progress_reporter(request.input_path)
+                        request,
+                        on_progress=_progress_reporter(
+                            request.input_path,
+                            benchmark=arguments.benchmark,
+                            source_fps=source_fps_by_path.get(request.input_path, 0.0),
+                        ),
                     )
                     scheduled.append((request, job))
                 except Exception as error:
