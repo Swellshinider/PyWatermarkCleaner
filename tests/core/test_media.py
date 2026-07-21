@@ -115,4 +115,3 @@ def test_read_frame_rejects_decode_or_format_failures(
 
     with pytest.raises(MediaError, match="125 ms"):
         reader.read_frame(media, 125)
-

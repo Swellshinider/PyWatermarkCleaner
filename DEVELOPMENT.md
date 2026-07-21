@@ -1,0 +1,75 @@
+# Development guide
+
+## Architecture
+
+Production code lives under `src/pywatermarkcleaner`:
+
+- `core/` is Qt-free and owns immutable geometry, OpenCV media/inpainting, latest-only preview, FFmpeg export, cancellation, and scheduling.
+- `cli.py` adapts those services to the current and legacy command-line interfaces.
+- `gui/` adapts them to PySide6 models, controllers, and the precision-studio Qt Widgets workbench.
+- `assets/` contains the SVG icon and bundled OFL fonts used by the desktop application.
+
+Inputs and completed outputs are immutable from the application's perspective. Export writes a sibling partial file and publishes it through an atomic no-replace operation.
+
+## Setup
+
+```bash
+python -m venv .venv
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
+
+Use Python 3.12-3.14. Install only `opencv-python`; mixing it with an OpenCV headless/contrib wheel in the same environment creates a shared `cv2` namespace conflict.
+
+## Quality gates
+
+```bash
+python -m ruff format --check .
+python -m ruff check .
+python -m mypy src
+python -m coverage run -m pytest
+python -m coverage report --fail-under=85
+```
+
+For headless GUI runs:
+
+```text
+Windows PowerShell: $env:QT_QPA_PLATFORM='offscreen'
+macOS/Linux: QT_QPA_PLATFORM=offscreen
+```
+
+Run the deterministic desktop startup check with:
+
+```bash
+python -m pywatermarkcleaner.gui.app --smoke-test
+```
+
+Integration tests generate tiny video-only and AAC samples through the `imageio-ffmpeg` executable; no binary media fixture is tracked.
+
+## Packaging
+
+Build the portable one-folder distribution on the target operating system:
+
+```bash
+python -m PyInstaller --noconfirm --clean packaging/PyWatermarkCleaner.spec
+```
+
+The result under `dist/PyWatermarkCleaner` contains `PyWatermarkCleaner` (windowed GUI), `PyWatermarkCleanerCLI` (console), shared libraries/assets, and the platform FFmpeg binary. PyInstaller does not cross-compile: build separately on Windows, Linux, macOS ARM64, and macOS Intel.
+
+Smoke both launchers before archiving:
+
+```text
+Windows:
+  dist\PyWatermarkCleaner\PyWatermarkCleanerCLI.exe --version
+  dist\PyWatermarkCleaner\PyWatermarkCleaner.exe --smoke-test
+
+macOS/Linux:
+  dist/PyWatermarkCleaner/PyWatermarkCleanerCLI --version
+  QT_QPA_PLATFORM=offscreen dist/PyWatermarkCleaner/PyWatermarkCleaner --smoke-test
+```
+
+The tag workflow builds unsigned portable archives for `v*` tags. It does not create a GitHub Release or sign/notarize artifacts.
+
+## Contributions
+
+Create a feature branch from an up-to-date `main`, write a failing test before production behavior, keep core Qt-free, run every quality gate, and explain user-visible changes in the pull request. Do not commit generated videos, coverage/build folders, packaged applications, or `.superpowers` scratch files.

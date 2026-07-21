@@ -36,9 +36,7 @@ def required_arguments(input_flag: str = "-i") -> list[str]:
 
 @pytest.mark.parametrize("input_flag", ["-i", "--input"])
 @pytest.mark.parametrize("worker_flag", ["--thread", "--workers"])
-def test_parser_accepts_legacy_and_new_aliases(
-    input_flag: str, worker_flag: str
-) -> None:
+def test_parser_accepts_legacy_and_new_aliases(input_flag: str, worker_flag: str) -> None:
     parser = cli.build_parser(maximum_workers=4)
 
     arguments = parser.parse_args(
@@ -153,8 +151,8 @@ def test_macos_output_directory_uses_home_movies(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("configured", "relative"),
     [
-        ('$HOME/Creator Videos', Path("Creator Videos")),
-        ('${HOME}/Videos', Path("Videos")),
+        ("$HOME/Creator Videos", Path("Creator Videos")),
+        ("${HOME}/Videos", Path("Videos")),
     ],
 )
 def test_linux_output_directory_expands_xdg_home(
@@ -168,9 +166,7 @@ def test_linux_output_directory_expands_xdg_home(
         encoding="utf-8",
     )
 
-    result = cli.default_output_directory(
-        platform_name="linux", home=home, environ={}
-    )
+    result = cli.default_output_directory(platform_name="linux", home=home, environ={})
 
     assert result == home / relative / "PyWatermarkCleaner"
 
@@ -180,9 +176,7 @@ def test_linux_output_directory_honors_xdg_config_home(tmp_path: Path) -> None:
     config = tmp_path / "xdg-config"
     config.mkdir()
     videos = tmp_path / "shared-videos"
-    (config / "user-dirs.dirs").write_text(
-        f'XDG_VIDEOS_DIR="{videos}"\n', encoding="utf-8"
-    )
+    (config / "user-dirs.dirs").write_text(f'XDG_VIDEOS_DIR="{videos}"\n', encoding="utf-8")
 
     result = cli.default_output_directory(
         platform_name="linux",
@@ -203,9 +197,7 @@ def test_linux_output_directory_falls_back_to_home_videos(
         config.mkdir(parents=True)
         (config / "user-dirs.dirs").write_text(contents, encoding="utf-8")
 
-    result = cli.default_output_directory(
-        platform_name="linux", home=home, environ={}
-    )
+    result = cli.default_output_directory(platform_name="linux", home=home, environ={})
 
     assert result == home / "Videos" / "PyWatermarkCleaner"
 
@@ -388,9 +380,7 @@ def test_run_allocates_batch_collisions_and_reports_container_fallback(
 ) -> None:
     first = Path("one") / "clip.wmv"
     second = Path("two") / "clip.wmv"
-    reader = StubMediaReader(
-        {first: metadata(first, 100, 100), second: metadata(second, 100, 100)}
-    )
+    reader = StubMediaReader({first: metadata(first, 100, 100), second: metadata(second, 100, 100)})
     output_dir = tmp_path / "exports"
     output_dir.mkdir()
     (output_dir / "clip_cleaned.mp4").touch()
@@ -579,9 +569,7 @@ def test_keyboard_interrupt_cancels_all_jobs_and_returns_130(
         ],
         media_reader=reader,
         exporter=object(),
-        scheduler_factory=scheduler_factory(
-            schedulers, {interrupted: KeyboardInterrupt()}
-        ),
+        scheduler_factory=scheduler_factory(schedulers, {interrupted: KeyboardInterrupt()}),
     )
 
     assert result == 130

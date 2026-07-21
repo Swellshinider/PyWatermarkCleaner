@@ -15,4 +15,3 @@ class FFmpegNotFoundError(RuntimeError):
 
 class ExportError(RuntimeError):
     """Raised when a video export cannot be completed safely."""
-

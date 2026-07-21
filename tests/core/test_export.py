@@ -249,9 +249,9 @@ def test_export_publishes_with_atomic_no_replace_without_os_replace(
     monkeypatch.setattr(os, "replace", disallow_replace)
     monkeypatch.setattr(os, "rename", record_rename)
 
-    result = make_exporter(
-        factory, [np.zeros((2, 4, 3), dtype=np.uint8)]
-    ).export(export_request(source, output), CancellationToken())
+    result = make_exporter(factory, [np.zeros((2, 4, 3), dtype=np.uint8)]).export(
+        export_request(source, output), CancellationToken()
+    )
 
     partial = tmp_path / "cleaned.partial.mp4"
     assert result == output
@@ -281,9 +281,9 @@ def test_destination_appearing_during_publication_is_not_overwritten(
     monkeypatch.setattr(os, "rename", destination_wins)
 
     with pytest.raises(ExportError, match="already exists"):
-        make_exporter(
-            factory, [np.zeros((2, 4, 3), dtype=np.uint8)]
-        ).export(export_request(source, output), CancellationToken())
+        make_exporter(factory, [np.zeros((2, 4, 3), dtype=np.uint8)]).export(
+            export_request(source, output), CancellationToken()
+        )
 
     assert output.read_bytes() == b"someone-else"
     assert not partial.exists()
@@ -311,9 +311,9 @@ def test_cancellation_after_publication_never_deletes_the_final_path(
 
     monkeypatch.setattr(export_module, publisher_name, publish_then_compete)
 
-    result = make_exporter(
-        factory, [np.zeros((2, 4, 3), dtype=np.uint8)]
-    ).export(export_request(source, output), token)
+    result = make_exporter(factory, [np.zeros((2, 4, 3), dtype=np.uint8)]).export(
+        export_request(source, output), token
+    )
 
     assert result == output
     assert output.read_bytes() == b"someone-else"
@@ -333,9 +333,7 @@ def test_preview_export_caps_video_and_audio_duration(tmp_path: Path) -> None:
     process = factory.processes[0]
     assert len(process.stdin.data) == 3 * 2 * 4 * 3
     assert process.command[process.command.index("-t") + 1] == "1.5"
-    assert ("-c:v", "libvpx-vp9") in tuple(
-        zip(process.command, process.command[1:], strict=False)
-    )
+    assert ("-c:v", "libvpx-vp9") in tuple(zip(process.command, process.command[1:], strict=False))
 
 
 def test_export_refuses_existing_output_before_starting_ffmpeg(tmp_path: Path) -> None:
@@ -346,9 +344,7 @@ def test_export_refuses_existing_output_before_starting_ffmpeg(tmp_path: Path) -
     factory = ProcessFactory()
 
     with pytest.raises(ExportError, match="already exists"):
-        make_exporter(factory, []).export(
-            export_request(source, output), CancellationToken()
-        )
+        make_exporter(factory, []).export(export_request(source, output), CancellationToken())
 
     assert output.read_bytes() == b"keep"
     assert factory.processes == []
@@ -409,6 +405,7 @@ def test_cancellation_terminates_ffmpeg_and_removes_partial(tmp_path: Path) -> N
         )
 
     assert factory.processes[0].terminated
+    assert factory.processes[0].stdin.closed
     assert not output.exists()
     assert not (tmp_path / "cancelled.partial.mp4").exists()
 

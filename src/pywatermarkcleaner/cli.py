@@ -61,9 +61,7 @@ def _windows_known_videos_directory() -> Path | None:
             ("data4", ctypes.c_ubyte * 8),
         ]
 
-    folder_id = GUID.from_buffer_copy(
-        UUID("18989B1D-99B5-455B-841C-AB7C74E4DDFC").bytes_le
-    )
+    folder_id = GUID.from_buffer_copy(UUID("18989B1D-99B5-455B-841C-AB7C74E4DDFC").bytes_le)
     path_pointer = ctypes.c_wchar_p()
     try:
         windll = ctypes.LibraryLoader(ctypes.WinDLL)
@@ -92,9 +90,7 @@ def _expand_home(value: str, home: Path) -> Path:
 
 def _linux_videos_directory(home: Path, environ: Mapping[str, str]) -> Path | None:
     configured_root = environ.get("XDG_CONFIG_HOME")
-    config_root = (
-        _expand_home(configured_root, home) if configured_root else home / ".config"
-    )
+    config_root = _expand_home(configured_root, home) if configured_root else home / ".config"
     config_file = config_root / "user-dirs.dirs"
     try:
         lines = config_file.read_text(encoding="utf-8").splitlines()
@@ -132,8 +128,7 @@ def default_output_directory(
         videos_directory = selected_home / "Movies"
     else:
         videos_directory = (
-            _linux_videos_directory(selected_home, selected_environment)
-            or selected_home / "Videos"
+            _linux_videos_directory(selected_home, selected_environment) or selected_home / "Videos"
         )
     return videos_directory / "PyWatermarkCleaner"
 

@@ -23,9 +23,7 @@ def request(name: str) -> ExportRequest:
     )
 
 
-@pytest.mark.parametrize(
-    ("cpu_count", "expected"), [(None, 1), (0, 1), (1, 1), (3, 3), (32, 4)]
-)
+@pytest.mark.parametrize(("cpu_count", "expected"), [(None, 1), (0, 1), (1, 1), (3, 3), (32, 4)])
 def test_max_allowed_workers_is_cpu_aware_and_bounded(
     cpu_count: int | None, expected: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -128,4 +126,3 @@ def test_scheduler_cancel_all_and_shutdown_close_submission() -> None:
 
     with pytest.raises(RuntimeError, match="shut down"):
         scheduler.submit(request("late"))
-

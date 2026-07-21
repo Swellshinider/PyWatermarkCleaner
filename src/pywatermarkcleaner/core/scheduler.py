@@ -47,9 +47,7 @@ class JobScheduler:
         ):
             raise ValueError(f"workers must be an integer from 1 to {maximum}")
         self._exporter = exporter
-        self._executor = ThreadPoolExecutor(
-            max_workers=max_workers, thread_name_prefix="export"
-        )
+        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="export")
         self._lock = RLock()
         self._next_id = 1
         self._closed = False

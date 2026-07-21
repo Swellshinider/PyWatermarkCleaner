@@ -1,155 +1,105 @@
 # PyWatermarkCleaner
 
-**PyWatermarkCleaner** is a command-line tool that removes or masks watermarks from one or more videos using OpenCV’s inpainting technique. It leverages multi-threaded processing (up to a user-specified number of threads) for faster concurrent handling of multiple video files.
+PyWatermarkCleaner is a cross-platform desktop application for removing a fixed watermark region from one or more videos with OpenCV inpainting. Drop in videos, draw the repair area, inspect a live optimized preview, and export full-resolution cleaned copies without overwriting the originals.
 
-## Roadmap/Features
+The desktop app is the primary experience. A compatible CLI remains available for scripts and batch jobs.
 
-Here we have our features and the planned features for upcoming versions of PyWatermarkCleaner:
+## Highlights
 
-- [x] **Multiple Input Files**: Process multiple video files in one command. 
-- [x] **Preview Mode**: Process only a small portion of each video to quickly confirm that the specified coordinates are correct.  
-- [x] **Graceful Cancellation**: Press **Ctrl + C** to cancel ongoing processing. The tool checks a stop event to exit gracefully at the next possible opportunity.  
-- [x] **Threaded Processing**: By default uses 4 worker threads, but you can override with `--thread`.  
+- Drag-and-drop video queue with per-video repair regions
+- Responsive silent preview while scrubbing or playing
+- Direct draw, move, resize, pixel editing, and keyboard nudging
+- Telea and Navier-Stokes inpainting
+- Configurable parallel exports with progress, retry, per-item cancel, and cancel-all
+- Safe same-container output names with optional source audio and metadata
+- Bundled FFmpeg through `imageio-ffmpeg`; no PATH setup required
+- Windows, macOS, and Linux support on Python 3.12-3.14
 
-- [ ] Support for Output Folder: Allow users to specify a custom directory where processed videos will be saved.
-- [ ] Enhanced Logging: Provide detailed logs for each processing step.
-- [ ] Customizable Inpainting Method: Allow users to choose between different inpainting algorithms.
-- [ ] Video Format Conversion: Support converting videos to a different format after processing.
-  
-## Table of Contents
+## Install from source
 
-- [PyWatermarkCleaner](#pywatermarkcleaner)
-  - [Roadmap/Features](#roadmapfeatures)
-  - [Table of Contents](#table-of-contents)
-  - [Requirements](#requirements)
-  - [Installation](#installation)
-  - [Usage](#usage)
-    - [Required Arguments](#required-arguments)
-    - [Optional Arguments](#optional-arguments)
-    - [Usage Examples](#usage-examples)
-  - [Preview Mode](#preview-mode)
-  - [Cancellation](#cancellation)
-  - [Project Structure](#project-structure)
-  - [Contribution](#contribution)
-    - [How to Contribute](#how-to-contribute)
-  - [License](#license)
-
-## Requirements
-
-- **Python 3.12+**  
-- **OpenCV** 
-- **NumPy**  
-- **FFmpeg** available in your system’s PATH (for audio reattachment)  
-
-## Installation
-
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/Swellshinider/PyWatermarkCleaner.git
-   cd PyWatermarkCleaner
-   ```
-2. Install dependencies (e.g., OpenCV, NumPy):
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Ensure **FFmpeg** is installed on your system and accessible via `ffmpeg` command.
-
-## Usage
-
-Run the script with:
-```bash
-python main.py -i video1.mp4 video2.mp4 ... --x X_COORD --y Y_COORD --width W_VALUE --height H_VALUE [options]
-```
-
-### Required Arguments
-
-- **`-i`** (one or more files):  
-  Paths to the input video files.  
-  Example: `-i video1.mp4 video2.mp4 "path\to\video\vid.mp4"`.
-
-- **`--x`**:  
-  X-coordinate of the rectangle’s top-left corner. Negative values mean “count from the right”.
-
-- **`--y`**:  
-  Y-coordinate of the rectangle’s top-left corner. Negative values mean “count from the bottom”.
-
-- **`--width`**:  
-  The width of the rectangle.
-
-- **`--height`**:  
-  The height of the rectangle.
-
-### Optional Arguments
-
-- **`--thread`**:  
-  Number of threads (worker pool size) to process videos in parallel. Default: 4.
-
-- **`--preview`**:  
-  If specified, each video processes only ~2% of its frames. Useful for quickly verifying your watermark coordinates.
-
-### Usage Examples
-
-1. **Process a single file**:
-   ```bash
-   python main.py \
-       -i "path/to/video.mp4" \
-       --x 10 --y 20 --width 50 --height 100
-   ```
-
-2. **Process multiple files** in parallel:
-    ```bash
-    python main.py \
-        -i video1.mp4 "path\to\video\video2.mp4" anotherVideo.avi \
-        --x 0 --y -50 --width 100 --height 50
-        --thread 4
-    ```
-    This will process all three videos concurrently (up to 4 threads).
-    
-Running will produce two files in the current directory:
-- `temp_{video_name}.mp4` (temporary inpainted video)
-- `result_{video_name}.mp4` (final video, audio reattached)
-
-## Preview Mode
-
-When you use the `--preview` flag, only about **2%** of each video is processed. This is particularly handy if your watermark coordinates might not be correct and you want to quickly test the region. Once you confirm your rectangle is correct, rerun **without** `--preview` for the final result.
-
-## Cancellation
-
-To **cancel** at any time, press **Ctrl + C**.  
-- A **stop event** is set internally.  
-- Each running thread checks this event periodically and exits gracefully soon after.
-
-The partially processed `temp_*.mp4` files may remain, but the final `result_*.mp4` won’t be generated for any canceled task.
-
-## Project Structure
+Python 3.12, 3.13, or 3.14 is required.
 
 ```bash
-PyWatermarkCleaner/
-├── main.py               # Entry point (CLI)
-├── video_converter.py    # Contains VideoConverter class
-├── coordinates.py        # Defines Coord class for watermark coordinates
-├── requirements.txt      # Lists Python dependencies
-└── README.md             # You are here!
+git clone https://github.com/Swellshinider/PyWatermarkCleaner.git
+cd PyWatermarkCleaner
+python -m venv .venv
 ```
 
-## Contribution
+Activate the environment:
 
-Contributions are welcome! If you have ideas to improve PyWatermarkCleaner, feel free to fork the repository, make your changes, and submit a pull request.
+```text
+Windows:  .venv\Scripts\activate
+macOS/Linux: source .venv/bin/activate
+```
 
-### How to Contribute
+Install and launch:
 
-- Fork the repository.
-- Create a new branch for your feature or bugfix.
-- Please, test your changes before committing.
-- Submit a pull request with a detailed explanation of your changes.
-- :)
+```bash
+python -m pip install --upgrade pip
+python -m pip install -e .
+pywatermarkcleaner-gui
+```
+
+Portable release archives include Python, Qt, OpenCV, and FFmpeg. They are unsigned in v1.0.0, so Windows SmartScreen or macOS Gatekeeper may ask you to confirm the first launch.
+
+## Desktop workflow
+
+1. Drop videos onto the window or choose **Add videos**.
+2. Select a video and drag a rectangle over the watermark.
+3. Move or resize the repair aperture. Arrow keys nudge one source pixel; Shift+arrow nudges ten.
+4. Scrub or play the silent optimized preview. Hold Space to reveal the original region.
+5. Configure Telea/Navier-Stokes, radius, output folder, and worker count as needed.
+6. Use **Apply to all** to copy the normalized region to videos with compatible dimensions.
+7. Choose **Clean videos**. Completed outputs can be revealed from the queue.
+
+The preview is downscaled to a maximum 1280-pixel long edge to remain responsive and may drop visual frames when processing falls behind. Exports always process full-resolution frames.
+
+Outputs default to the platform Videos/Movies folder under `PyWatermarkCleaner` and use `<name>_cleaned.<ext>`, then `_2`, `_3`, and so on. Inputs are never overwritten. MP4/MOV/M4V/MKV use H.264, AVI uses MPEG-4, and WebM uses VP9; unsupported containers visibly fall back to MP4.
+
+## Command line
+
+The installed command and the legacy `python main.py` entry point are equivalent:
+
+```bash
+pywatermarkcleaner \
+  -i video.mp4 second.mov \
+  --x 1280 --y 40 --width 420 --height 120 \
+  --method telea --radius 3 --workers 2
+```
+
+Negative `--x` and `--y` count from the right and bottom of each input independently. Useful options:
+
+```text
+-i, --input PATH [PATH ...]     Input videos
+--x/--y/--width/--height INT    Repair rectangle in source pixels
+--thread, --workers INT         Concurrent jobs (1 through min(4, CPU count))
+--method METHOD                 telea or navier-stokes
+--radius INT                    Inpainting radius, 1 through 10
+--output-dir PATH               Destination folder
+--preview                       Export only the first five seconds
+--version                       Print the application version
+```
+
+Exit status is 0 for success, 1 when processing fails, 2 for invalid arguments/media, and 130 for cancellation. Unlike older releases, unchanged legacy invocations now use the safe platform output folder and same-container naming rather than `result_*.mp4` in the current directory.
+
+## Troubleshooting
+
+- **A video will not enter the queue:** it could not be opened or has no readable video stream. Convert or repair it with a media tool and try again.
+- **Clean videos is disabled:** every queued item needs a valid region at least 2×2 source pixels.
+- **Export codec is unavailable:** use a release archive or reinstall `imageio-ffmpeg`; custom FFmpeg builds must contain libx264/libvpx support.
+- **Output folder is not writable/full:** choose another folder, then retry the failed row.
+- **Linux window does not open:** install the platform libraries required by Qt/OpenCV (OpenGL, EGL, XKB) for your distribution.
+
+The **Activity log** and **Copy diagnostics** actions provide sanitized versions and job details without copying video frames.
+
+## Development
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for architecture, tests, CI, packaging, and contribution commands. Third-party software and font licenses are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Deferred after v1
+
+Code signing/notarization, native installers, automatic updates, AI-based removal, moving-watermark tracking/keyframes, and multiple simultaneous repair regions are intentionally deferred.
 
 ## License
 
-This project is licensed under the MIT License. See the LICENSE file for details.
-
----
-
-Enjoy using **PyWatermarkCleaner** to remove or mask watermarks from your videos quickly and easily!  
-
-**By:** [Swellshinider](https://github.com/Swellshinider).
+PyWatermarkCleaner is released under the [MIT License](LICENSE).

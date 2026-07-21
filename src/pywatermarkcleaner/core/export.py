@@ -52,9 +52,7 @@ _PROFILES = {
 _PROFILES.update(
     {
         "avi": ExportProfile("avi", ("-c:v", "mpeg4", "-q:v", "3")),
-        "webm": ExportProfile(
-            "webm", ("-c:v", "libvpx-vp9", "-crf", "30", "-b:v", "0")
-        ),
+        "webm": ExportProfile("webm", ("-c:v", "libvpx-vp9", "-crf", "30", "-b:v", "0")),
     }
 )
 
@@ -146,6 +144,11 @@ def _safe_stderr(process: WritableProcess) -> str:
 
 
 def _terminate(process: WritableProcess) -> None:
+    if process.stdin is not None:
+        try:
+            process.stdin.close()
+        except (OSError, ValueError):
+            pass
     try:
         process.terminate()
         process.wait(timeout=2)
@@ -253,9 +256,11 @@ def _publish_no_replace(partial_path: Path, output_path: Path) -> None:
             return
         _hardlink_no_replace(partial_path, output_path)
     except OSError as error:
-        if isinstance(error, FileExistsError) or error.errno == errno.EEXIST or getattr(
-            error, "winerror", None
-        ) in {80, 183}:
+        if (
+            isinstance(error, FileExistsError)
+            or error.errno == errno.EEXIST
+            or getattr(error, "winerror", None) in {80, 183}
+        ):
             raise ExportError(
                 f"Output already exists and will not be overwritten: {output_path}"
             ) from error

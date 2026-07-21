@@ -5,8 +5,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QObject, QSettings, Qt, Signal
-from PySide6.QtWidgets import QStyleOptionViewItem
+from PySide6.QtCore import QObject, QRect, QSettings, Qt, Signal
+from PySide6.QtGui import QImage, QPainter
+from PySide6.QtWidgets import QStyle, QStyleOptionViewItem
 
 from pywatermarkcleaner.core.geometry import NormalizedRegion
 from pywatermarkcleaner.core.models import JobState, VideoMetadata
@@ -248,6 +249,34 @@ def test_failed_delegate_allocates_remedy_height_and_accessible_text(tmp_path: P
     assert failed_height > normal_height
     model.update_job(0, state=JobState.FAILED, error="Choose another output folder and retry.")
     assert "retry" in model.data(model.index(0), Qt.ItemDataRole.AccessibleTextRole).lower()
+
+
+def test_queue_delegate_paints_selected_progress_and_inline_remedy(qtbot, tmp_path: Path) -> None:
+    model = QueueModel()
+    source = tmp_path / "processing.mp4"
+    source.touch()
+    model.add_metadata(metadata(source))
+    model.update_job(
+        0,
+        state=JobState.PROCESSING,
+        progress=42,
+        error="The destination became unavailable; choose another folder.",
+    )
+    delegate = QueueDelegate()
+    option = QStyleOptionViewItem()
+    option.rect = QRect(0, 0, 280, 112)
+    option.state = QStyle.StateFlag.State_Selected
+    image = QImage(option.rect.size(), QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(image)
+    try:
+        delegate.paint(painter, option, model.index(0))
+    finally:
+        painter.end()
+
+    assert image.pixelColor(1, 1).alpha() > 0
+    assert image.pixelColor(100, 56).alpha() > 0
 
 
 def test_close_completes_when_cancel_finishes_synchronously(qtbot) -> None:

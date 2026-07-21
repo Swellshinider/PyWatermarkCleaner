@@ -13,5 +13,13 @@ htmlcov/
 build/
 dist/
 *.mp4
+*.avi
+*.mkv
+*.mov
+*.m4v
+*.webm
+*.partial.*
 *.ps1
 .superpowers/
+.DS_Store
+test-results/
