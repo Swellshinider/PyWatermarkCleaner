@@ -18,26 +18,13 @@ The desktop app is the primary experience. A compatible CLI remains available fo
 ## Install from source
 
 Python 3.12, 3.13, or 3.14 is required.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first.
 
 ```bash
 git clone https://github.com/Swellshinider/PyWatermarkCleaner.git
 cd PyWatermarkCleaner
-python -m venv .venv
-```
-
-Activate the environment:
-
-```text
-Windows:  .venv\Scripts\activate
-macOS/Linux: source .venv/bin/activate
-```
-
-Install and launch:
-
-```bash
-python -m pip install --upgrade pip
-python -m pip install -e .
-pywatermarkcleaner-gui
+uv sync
+uv run pywatermarkcleaner-gui
 ```
 
 Portable release archives include Python, Qt, OpenCV, and FFmpeg. They are unsigned in v1.0.0, so Windows SmartScreen or macOS Gatekeeper may ask you to confirm the first launch.
@@ -61,7 +48,7 @@ Outputs default to the platform Videos/Movies folder under `PyWatermarkCleaner` 
 The installed command and the legacy `python main.py` entry point are equivalent:
 
 ```bash
-pywatermarkcleaner \
+uv run pywatermarkcleaner \
   -i video.mp4 second.mov \
   --x 1280 --y 40 --width 420 --height 120 \
   --method telea --radius 3 --workers 2 \

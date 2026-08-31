@@ -14,9 +14,7 @@ Inputs and completed outputs are immutable from the application's perspective. E
 ## Setup
 
 ```bash
-python -m venv .venv
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+uv sync --extra dev
 ```
 
 Use Python 3.12-3.14. Install only `opencv-python`; mixing it with an OpenCV headless/contrib wheel in the same environment creates a shared `cv2` namespace conflict.
@@ -24,11 +22,11 @@ Use Python 3.12-3.14. Install only `opencv-python`; mixing it with an OpenCV hea
 ## Quality gates
 
 ```bash
-python -m ruff format --check .
-python -m ruff check .
-python -m mypy src
-python -m coverage run -m pytest
-python -m coverage report --fail-under=85
+uv run --locked ruff format --check .
+uv run --locked ruff check .
+uv run --locked mypy src
+uv run --locked coverage run -m pytest
+uv run --locked coverage report --fail-under=85
 ```
 
 For headless GUI runs:
@@ -41,7 +39,7 @@ macOS/Linux: QT_QPA_PLATFORM=offscreen
 Run the deterministic desktop startup check with:
 
 ```bash
-python -m pywatermarkcleaner.gui.app --smoke-test
+uv run --locked python -m pywatermarkcleaner.gui.app --smoke-test
 ```
 
 Integration tests generate tiny video-only and AAC samples through the `imageio-ffmpeg` executable; no binary media fixture is tracked.
@@ -51,7 +49,7 @@ Integration tests generate tiny video-only and AAC samples through the `imageio-
 Build the portable one-folder distribution on the target operating system:
 
 ```bash
-python -m PyInstaller --noconfirm --clean packaging/PyWatermarkCleaner.spec
+uv run --locked pyinstaller --noconfirm --clean packaging/PyWatermarkCleaner.spec
 ```
 
 The result under `dist/PyWatermarkCleaner` contains `PyWatermarkCleaner` (windowed GUI), `PyWatermarkCleanerCLI` (console), shared libraries/assets, and the platform FFmpeg binary. PyInstaller does not cross-compile: build separately on Windows, Linux, macOS ARM64, and macOS Intel.

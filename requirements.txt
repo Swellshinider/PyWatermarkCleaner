@@ -1,2 +1,0 @@
-# Compatibility installer. Project dependencies are declared in pyproject.toml.
--e .
