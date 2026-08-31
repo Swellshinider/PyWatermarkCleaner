@@ -53,7 +53,7 @@ OutputPathResolver = Callable[[Path, Path], Path]
 
 def _windows_known_videos_directory() -> Path | None:
     """Return the Windows Known Folder Videos path when the shell provides it."""
-    if os.name != "nt":
+    if sys.platform != "win32":
         return None
 
     class GUID(ctypes.Structure):
