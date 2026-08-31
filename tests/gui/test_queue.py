@@ -8,11 +8,43 @@ from PySide6.QtCore import Qt
 
 from pywatermarkcleaner.core.geometry import NormalizedRegion
 from pywatermarkcleaner.core.models import JobState, VideoMetadata
-from pywatermarkcleaner.gui.queue import ProbeController, QueueModel, QueueRole
+from pywatermarkcleaner.gui.queue import ProbeController, QueueModel, QueueRole, _ProbeTask
 
 
 def metadata(path: Path, width: int = 1920, height: int = 1080) -> VideoMetadata:
     return VideoMetadata(path.resolve(), width, height, 30.0, 300, 10.0, "mp4")
+
+
+def test_probe_task_emits_success_error_and_finished(qtbot, tmp_path: Path) -> None:
+    path = tmp_path / "source.mp4"
+    successes: list[tuple[object, ...]] = []
+    failures: list[tuple[object, ...]] = []
+    finished_paths: list[Path] = []
+
+    class Reader:
+        def probe(self, source: Path) -> VideoMetadata:
+            return metadata(source)
+
+    task = _ProbeTask(Reader(), path)
+    task.signals.succeeded.connect(lambda *args: successes.append(args))
+    task.signals.finished.connect(finished_paths.append)
+    task.run()
+
+    assert successes[0][0] == path
+    assert successes[0][1] == metadata(path)
+    assert finished_paths == [path]
+
+    class FailingReader:
+        def probe(self, _source: Path) -> VideoMetadata:
+            raise RuntimeError("cannot probe source")
+
+    failed_task = _ProbeTask(FailingReader(), path)
+    failed_task.signals.failed.connect(lambda *args: failures.append(args))
+    failed_task.signals.finished.connect(finished_paths.append)
+    failed_task.run()
+
+    assert failures == [(path, "cannot probe source")]
+    assert finished_paths[-1] == path
 
 
 def test_queue_model_exposes_state_roles_and_ignores_duplicate(qtbot, tmp_path: Path) -> None:

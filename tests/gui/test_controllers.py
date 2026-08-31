@@ -15,7 +15,7 @@ from pywatermarkcleaner.core.models import (
     VideoMetadata,
 )
 from pywatermarkcleaner.gui.export_controller import ExportController
-from pywatermarkcleaner.gui.preview_controller import PreviewController
+from pywatermarkcleaner.gui.preview_controller import PreviewController, _SourceTask
 from pywatermarkcleaner.gui.queue import QueueModel
 
 
@@ -45,6 +45,39 @@ class FakeCoordinator:
 
     def close(self, *, wait: bool = True) -> None:
         self.closed = True
+
+
+def test_source_task_emits_scaled_result_and_error(qtbot, tmp_path: Path) -> None:
+    path = tmp_path / "source.mp4"
+    result_events: list[tuple[object, ...]] = []
+    error_events: list[tuple[object, ...]] = []
+    finished_tasks: list[_SourceTask] = []
+
+    class Reader:
+        def read_frame(self, _path: Path, _timestamp: int):
+            return np.zeros((700, 1400, 3), dtype=np.uint8)
+
+    task = _SourceTask(Reader(), path, 125, 1)
+    task.signals.result.connect(lambda *args: result_events.append(args))
+    task.signals.finished.connect(finished_tasks.append)
+    task.run()
+
+    assert result_events[0][0] == 1
+    assert result_events[0][2].shape == (640, 1280, 3)
+    assert finished_tasks == [task]
+
+    class FailingReader:
+        def read_frame(self, _path: Path, _timestamp: int):
+            raise RuntimeError("cannot read source")
+
+    failed_task = _SourceTask(FailingReader(), path, 125, 2)
+    failed_task.signals.error.connect(lambda *args: error_events.append(args))
+    failed_task.signals.finished.connect(finished_tasks.append)
+    failed_task.run()
+
+    assert error_events[0][0] == 2
+    assert str(error_events[0][1]) == "cannot read source"
+    assert finished_tasks[-1] is failed_task
 
 
 def test_preview_sequences_and_suppresses_stale_results(qtbot, tmp_path: Path) -> None:
