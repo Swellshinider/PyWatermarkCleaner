@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import Lock
 
 import cv2
 import numpy as np
@@ -20,20 +21,63 @@ class InpaintPlan:
     mask: NDArray[np.uint8]
     options: ProcessingOptions
 
-    def apply(self, frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
+    def view(self, frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
+        """Return the crop of ``frame`` covered by this plan."""
         _validate_frame(frame)
         right = self.crop.x + self.crop.width
         bottom = self.crop.y + self.crop.height
         if right > frame.shape[1] or bottom > frame.shape[0]:
             raise ValueError("frame dimensions do not match the inpainting plan")
-        source = frame[self.crop.y : bottom, self.crop.x : right]
+        return frame[self.crop.y : bottom, self.crop.x : right]
+
+    def apply(self, frame: NDArray[np.uint8], *, in_place: bool = False) -> NDArray[np.uint8]:
+        """Clean ``frame``; with ``in_place`` the caller's array is written instead of copied."""
+        source = self.view(frame)
         algorithm = {
             InpaintMethod.TELEA: cv2.INPAINT_TELEA,
             InpaintMethod.NAVIER_STOKES: cv2.INPAINT_NS,
         }[self.options.method]
         cleaned_crop = cv2.inpaint(source.copy(), self.mask, self.options.radius, algorithm)
-        result = frame.copy()
-        result[self.crop.y : bottom, self.crop.x : right] = cleaned_crop
+        result = frame if in_place else frame.copy()
+        self.view(result)[:] = cleaned_crop
+        return result
+
+
+# Mean absolute 0-255 difference around the mask below which compression noise is assumed.
+REUSE_TOLERANCE = 3.0
+
+
+class ReusingInpainter:
+    """Reuse the last full inpaint while the pixels around the mask stay put.
+
+    Thread-safe. Which keyframe a frame is compared against depends on thread timing,
+    but every reused fill is within ``tolerance`` of the surroundings it was computed from.
+    """
+
+    def __init__(self, plan: InpaintPlan, tolerance: float = REUSE_TOLERANCE) -> None:
+        self._plan = plan
+        self._tolerance = tolerance
+        self._fill = plan.mask > 0
+        self._ring = np.where(self._fill, 0, 255).astype(np.uint8)
+        # A mask covering its whole crop has no surroundings to compare, so never reuse.
+        self._reusable = bool(cv2.countNonZero(self._ring))
+        self._lock = Lock()
+        self._keyframe: tuple[NDArray[np.uint8], NDArray[np.uint8]] | None = None
+
+    def apply(self, frame: NDArray[np.uint8], *, in_place: bool = False) -> NDArray[np.uint8]:
+        view = self._plan.view(frame)
+        with self._lock:
+            keyframe = self._keyframe
+        if self._reusable and keyframe is not None:
+            drift = sum(cv2.mean(cv2.absdiff(view, keyframe[0]), mask=self._ring)[:3]) / 3
+            if drift <= self._tolerance:
+                result = frame if in_place else frame.copy()
+                self._plan.view(result)[self._fill] = keyframe[1][self._fill]
+                return result
+        source = view.copy()
+        result = self._plan.apply(frame, in_place=in_place)
+        with self._lock:
+            self._keyframe = (source, self._plan.view(result).copy())
         return result
 
 
