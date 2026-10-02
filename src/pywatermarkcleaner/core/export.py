@@ -41,6 +41,9 @@ from .models import (
 )
 from .output_paths import allocate_output_path
 
+# Keeps FFmpeg children from opening a console window when the app has none (Windows).
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 @dataclass(frozen=True, slots=True)
 class ExportProfile:
@@ -444,6 +447,7 @@ class VideoExporter:
                 stderr=subprocess.PIPE,
                 timeout=20,
                 check=False,
+                creationflags=NO_WINDOW,
             )
             succeeded = result.returncode == 0
         except (OSError, subprocess.SubprocessError):
@@ -538,6 +542,7 @@ class VideoExporter:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
+                creationflags=NO_WINDOW,
             )
             if process.stdin is None:
                 raise ExportError("FFmpeg did not provide a writable input pipe.")

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import cv2
-from fastapi import Body, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import (
     FileResponse,
@@ -24,6 +24,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from pywatermarkcleaner import __version__
 from pywatermarkcleaner.core.cancellation import CancellationToken
@@ -210,17 +211,19 @@ def create_app(
         return session.state()
 
     @app.post("/api/videos/upload")
-    def upload_videos(files: Annotated[list[UploadFile], File()]) -> dict[str, Any]:
-        saved: list[Path] = []
-        for upload in files:
-            name = Path(upload.filename or "video").name or "video"
-            folder = session.workspace / "uploads" / secrets.token_hex(6)
-            folder.mkdir(parents=True)
-            target = folder / name
+    async def upload_video(request: Request, name: str = "video") -> dict[str, Any]:
+        """Store one raw request body as a video; the client sends one request per file."""
+        folder = session.workspace / "uploads" / secrets.token_hex(6)
+        folder.mkdir(parents=True)
+        target = folder / (Path(name).name or "video")
+        try:
             with target.open("wb") as handle:
-                shutil.copyfileobj(upload.file, handle, 1024 * 1024)
-            saved.append(target)
-        add_paths(saved, uploaded=True)
+                async for chunk in request.stream():
+                    handle.write(chunk)
+        except BaseException:
+            shutil.rmtree(folder, ignore_errors=True)
+            raise
+        await run_in_threadpool(add_paths, [target], uploaded=True)
         return session.state()
 
     @app.delete("/api/videos/{item_id}")

@@ -12,12 +12,11 @@ from typing import Any
 
 from pywatermarkcleaner.cli import default_output_directory
 from pywatermarkcleaner.core.exceptions import MediaError
-from pywatermarkcleaner.core.export import resolve_ffmpeg_executable
+from pywatermarkcleaner.core.export import NO_WINDOW, resolve_ffmpeg_executable
 from pywatermarkcleaner.core.models import FormatPolicy, InpaintMethod, PerformanceMode
 from pywatermarkcleaner.core.scheduler import max_allowed_workers
 
 VIDEO_PATTERNS = "*.mp4 *.mov *.m4v *.mkv *.avi *.webm"
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def config_directory() -> Path:
@@ -106,7 +105,7 @@ def _run_picker(mode: str) -> list[str]:
             capture_output=True,
             text=True,
             timeout=600,
-            creationflags=_NO_WINDOW,
+            creationflags=NO_WINDOW,
         )
         paths = json.loads(result.stdout or "[]")
     except (OSError, ValueError, subprocess.SubprocessError):
@@ -167,7 +166,7 @@ def build_proxy(source: Path, target: Path) -> None:
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-movflags", "+faststart", str(partial),
     ]  # fmt: skip
-    result = subprocess.run(command, capture_output=True, creationflags=_NO_WINDOW)
+    result = subprocess.run(command, capture_output=True, creationflags=NO_WINDOW)
     if result.returncode != 0 or not partial.is_file():
         partial.unlink(missing_ok=True)
         tail = result.stderr.decode("utf-8", errors="replace").strip()[-500:]

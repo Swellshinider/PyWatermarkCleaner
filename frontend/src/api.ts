@@ -68,7 +68,9 @@ export class ApiError extends Error {
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method, credentials: "same-origin" };
-  if (body instanceof FormData) {
+  if (body instanceof Blob) {
+    init.body = body; // raw upload: the browser streams the file from disk
+  } else if (body instanceof FormData) {
     init.body = body;
   } else if (body !== undefined) {
     init.headers = { "Content-Type": "application/json" };
@@ -91,11 +93,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   state: () => request<AppState>("GET", "/state"),
   pickVideos: () => request<AppState>("POST", "/videos/pick"),
-  upload: (files: File[]) => {
-    const form = new FormData();
-    for (const f of files) form.append("files", f, f.name);
-    return request<AppState>("POST", "/videos/upload", form);
-  },
+  upload: (file: File) =>
+    request<AppState>("POST", `/videos/upload?name=${encodeURIComponent(file.name)}`, file),
   remove: (id: string) => request<AppState>("DELETE", `/videos/${id}`),
   setRegion: (id: string, region: Region | null) =>
     request<Item>("PUT", `/videos/${id}/region`, region),
