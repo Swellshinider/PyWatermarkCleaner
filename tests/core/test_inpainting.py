@@ -7,7 +7,12 @@ import pytest
 from numpy.typing import NDArray
 
 from pywatermarkcleaner.core.geometry import NormalizedRegion, PixelRegion
-from pywatermarkcleaner.core.inpainting import create_mask, inpaint_frame
+from pywatermarkcleaner.core.inpainting import (
+    ReusingInpainter,
+    create_mask,
+    inpaint_frame,
+    prepare_inpainting,
+)
 from pywatermarkcleaner.core.models import InpaintMethod, ProcessingOptions
 
 
@@ -82,3 +87,51 @@ def test_inpaint_frame_rejects_invalid_dtype_shape_or_empty_frame(
             NormalizedRegion(0.0, 0.0, 0.5, 0.5),
             ProcessingOptions(),
         )
+
+
+def _noisy_frame(seed: int) -> NDArray[np.uint8]:
+    return np.random.default_rng(seed).integers(0, 255, (40, 60, 3), dtype=np.uint8)
+
+
+def test_plan_apply_in_place_writes_the_callers_frame_only_when_asked() -> None:
+    plan = prepare_inpainting(
+        (40, 60, 3), NormalizedRegion(0.4, 0.4, 0.2, 0.2), ProcessingOptions()
+    )
+    frame = _noisy_frame(0)
+    original = frame.copy()
+
+    assert plan.apply(frame) is not frame
+    assert np.array_equal(frame, original)
+    assert plan.apply(frame, in_place=True) is frame
+    assert not np.array_equal(frame, original)
+
+
+def test_reusing_inpainter_reuses_fill_while_surroundings_hold_and_refills_when_they_change() -> (
+    None
+):
+    plan = prepare_inpainting(
+        (40, 60, 3), NormalizedRegion(0.4, 0.4, 0.2, 0.2), ProcessingOptions()
+    )
+    reusing = ReusingInpainter(plan)
+    first = _noisy_frame(1)
+    reusing.apply(first)
+
+    # Same surroundings, different content under the mask: the keyframe fill is reused.
+    same_surroundings = first.copy()
+    plan.view(same_surroundings)[plan.mask > 0] = 0
+    assert np.array_equal(reusing.apply(same_surroundings), plan.apply(first))
+
+    # Different surroundings: falls back to a full inpaint of that frame.
+    other = _noisy_frame(2)
+    assert np.array_equal(reusing.apply(other), plan.apply(other))
+
+
+def test_reusing_inpainter_never_reuses_when_the_mask_has_no_surroundings() -> None:
+    plan = prepare_inpainting(
+        (40, 60, 3), NormalizedRegion(0.0, 0.0, 1.0, 1.0), ProcessingOptions()
+    )
+    reusing = ReusingInpainter(plan)
+    first, second = _noisy_frame(3), _noisy_frame(4)
+    reusing.apply(first)
+
+    assert np.array_equal(reusing.apply(second), plan.apply(second))

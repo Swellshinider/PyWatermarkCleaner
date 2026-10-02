@@ -28,7 +28,7 @@ from numpy.typing import NDArray
 from .cancellation import CancellationToken, CancelledError
 from .exceptions import ExportError, FFmpegNotFoundError, MediaError
 from .geometry import NormalizedRegion
-from .inpainting import inpaint_frame, prepare_inpainting
+from .inpainting import ReusingInpainter, inpaint_frame, prepare_inpainting
 from .media import OpenCVMediaReader
 from .models import (
     ExportRequest,
@@ -550,7 +550,15 @@ class VideoExporter:
                 plan = prepare_inpainting(
                     (metadata.height, metadata.width, 3), request.region, request.options
                 )
-                operation = plan.apply
+                cleaner = (
+                    plan
+                    if request.performance is PerformanceMode.QUALITY
+                    else ReusingInpainter(plan)
+                )
+
+                def operation(frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
+                    # Decoded frames are owned by this export, so cleaning in place is safe.
+                    return cleaner.apply(frame, in_place=True)
             else:
 
                 def operation(frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
@@ -567,15 +575,23 @@ class VideoExporter:
                 if len(pending) >= workers:
                     cleaned = self._await_frame(pending.pop(0), token)
                     token.raise_if_cancelled()
-                    process.stdin.write(cleaned.tobytes())
+                    process.stdin.write(memoryview(np.ascontiguousarray(cleaned)))
                     frames_done += 1
-                    progress(JobState.PROCESSING, frames_done, "Processing frames")
+                    progress(
+                        JobState.PROCESSING,
+                        frames_done,
+                        "Processing frames" if frames_done == 1 else "",
+                    )
             while pending:
                 cleaned = self._await_frame(pending.pop(0), token)
                 token.raise_if_cancelled()
-                process.stdin.write(cleaned.tobytes())
+                process.stdin.write(memoryview(np.ascontiguousarray(cleaned)))
                 frames_done += 1
-                progress(JobState.PROCESSING, frames_done, "Processing frames")
+                progress(
+                    JobState.PROCESSING,
+                    frames_done,
+                    "Processing frames" if frames_done == 1 else "",
+                )
             executor.shutdown(wait=True, cancel_futures=True)
             executor = None
             process.stdin.close()

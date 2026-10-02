@@ -24,6 +24,7 @@ from pywatermarkcleaner.core.models import (
     ExportRequest,
     JobState,
     ProcessingOptions,
+    ProgressEvent,
     VideoMetadata,
 )
 
@@ -560,3 +561,17 @@ def test_real_ffmpeg_tiny_video_round_trip_when_available(tmp_path: Path) -> Non
     assert metadata.width == 16
     assert metadata.height == 16
     assert metadata.frame_count >= 1
+
+
+def test_export_announces_processing_frames_once_instead_of_every_frame(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    source.touch()
+    frames = [np.full((2, 4, 3), value, dtype=np.uint8) for value in range(5)]
+    events: list[ProgressEvent] = []
+
+    make_exporter(ProcessFactory(), frames).export(
+        export_request(source, tmp_path / "cleaned.mp4"), CancellationToken(), events.append
+    )
+
+    processing = [e.message for e in events if e.state is JobState.PROCESSING]
+    assert processing == ["Processing frames", "", "", "", ""]
