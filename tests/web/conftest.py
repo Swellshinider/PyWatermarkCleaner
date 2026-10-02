@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 from pywatermarkcleaner.core.cancellation import CancellationToken, CancelledError
+from pywatermarkcleaner.core.export import resolve_ffmpeg_executable
 from pywatermarkcleaner.core.models import ExportRequest, JobState, ProgressEvent
 from pywatermarkcleaner.web.server import COOKIE_NAME, create_app
 
@@ -49,11 +50,23 @@ class FakeExporter:
 
 
 def make_video(path: Path, *, width: int = 64, height: int = 48, frames: int = 30) -> Path:
-    """Write a small mp4 whose frame brightness encodes its index."""
-    writer = cv2.VideoWriter(str(path), cv2.VideoWriter.fourcc(*"mp4v"), 10.0, (width, height))
-    for index in range(frames):
-        writer.write(np.full((height, width, 3), 8 * index, dtype=np.uint8))
-    writer.release()
+    """Write a small mp4 whose frame brightness encodes its index.
+
+    Encoded with the bundled ffmpeg; OpenCV VideoWriter lacks an mp4 codec on some runners.
+    """
+    raw = b"".join(
+        np.full((height, width, 3), 8 * index, dtype=np.uint8).tobytes() for index in range(frames)
+    )
+    subprocess.run(
+        [
+            str(resolve_ffmpeg_executable()),
+            *("-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24"),
+            *("-s", f"{width}x{height}", "-r", "10", "-i", "-"),
+            *("-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)),
+        ],
+        input=raw,
+        check=True,
+    )
     return path
 
 
