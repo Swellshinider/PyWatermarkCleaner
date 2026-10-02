@@ -51,19 +51,22 @@ export default function App() {
 
   const addVideos = () => void attempt(api.pickVideos).then(applyState);
 
-  const upload = (files: File[]) => {
-    if (!files.length) return;
-    setStatus(`Adding ${files.length} ${files.length === 1 ? "video" : "videos"}.`);
-    void attempt(() => api.upload(files)).then((s) => {
-      applyState(s);
-      if (s) setStatus("");
-    });
+  // One request per file, in order, so each video shows up as soon as it is stored.
+  const upload = async (files: File[]) => {
+    let failed = false;
+    for (const [index, file] of files.entries()) {
+      setStatus(`Adding ${index + 1} of ${files.length}: ${file.name}`);
+      const state = await attempt(() => api.upload(file));
+      applyState(state);
+      failed ||= !state;
+    }
+    if (!failed) setStatus("");
   };
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDropping(false);
-    upload(Array.from(e.dataTransfer.files));
+    void upload(Array.from(e.dataTransfer.files));
   };
   const hasFiles = (e: React.DragEvent) => e.dataTransfer.types.includes("Files");
 

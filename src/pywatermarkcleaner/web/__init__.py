@@ -64,7 +64,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     token = secrets.token_urlsafe(32)
     app = create_app(token=token, port=port)
     server = uvicorn.Server(
-        uvicorn.Config(app, log_config=None, log_level="warning", timeout_graceful_shutdown=1)
+        uvicorn.Config(
+            app,
+            log_config=None,
+            log_level="warning",
+            timeout_graceful_shutdown=1,
+            # Windows' default Proactor loop logs harmless ConnectionResetError tracebacks
+            # whenever the browser aborts a request (e.g. switching videos).
+            loop="asyncio:SelectorEventLoop",
+        )
     )
 
     if "--smoke-test" in args:

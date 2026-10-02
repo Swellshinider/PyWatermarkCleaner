@@ -15,7 +15,7 @@ from numpy.typing import NDArray
 
 from .cancellation import CancellationToken
 from .exceptions import PreviewError
-from .export import resolve_ffmpeg_executable
+from .export import NO_WINDOW, resolve_ffmpeg_executable
 from .geometry import NormalizedRegion
 from .inpainting import inpaint_frame, prepare_inpainting
 from .media import OpenCVMediaReader
@@ -203,7 +203,11 @@ def render_preview_clip(
         ]  # fmt: skip
         out_path.parent.mkdir(parents=True, exist_ok=True)
         process = subprocess.Popen(
-            command, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL
+            command,
+            stdin=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            creationflags=NO_WINDOW,
         )
         assert process.stdin is not None
         frames = max(1, round(seconds * fps))

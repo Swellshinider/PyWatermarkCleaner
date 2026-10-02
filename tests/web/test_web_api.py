@@ -154,12 +154,14 @@ def test_preview_clip_renders_playable_mp4(client: TestClient, added: dict[str, 
 def test_upload_streams_into_workspace_and_is_removed(
     client: TestClient, tmp_path: Path, video: Path
 ) -> None:
-    with video.open("rb") as handle:
-        state = client.post("/api/videos/upload", files=[("files", ("up.mp4", handle))]).json()
+    state = client.post(
+        "/api/videos/upload", params={"name": "../up.mp4"}, content=video.read_bytes()
+    ).json()
     assert [i["name"] for i in state["items"]] == ["up.mp4"]
     session = client.app.state.session  # type: ignore[attr-defined]
     stored = session.items[0].path
     assert stored.is_file()
+    assert stored.is_relative_to(session.workspace.resolve())  # items store resolved paths
     client.delete(f"/api/videos/{state['items'][0]['id']}")
     assert not stored.exists()
 
