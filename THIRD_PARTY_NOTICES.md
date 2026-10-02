@@ -23,4 +23,4 @@ The following unmodified font files are bundled under the SIL Open Font License 
 
 Their full OFL texts are stored beside the font files under `src/pywatermarkcleaner/assets/fonts/`.
 
-OpenCV wheels may also bundle FFmpeg/Qt and other native libraries. See the wheel's `LICENSE-3RD-PARTY.txt` for the exact build installed or redistributed.
+OpenCV wheels may also bundle FFmpeg and other native libraries. See the wheel's `LICENSE-3RD-PARTY.txt` for the exact build installed or redistributed.

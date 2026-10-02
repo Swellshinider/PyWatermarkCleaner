@@ -7,7 +7,6 @@ from pathlib import Path
 
 import cv2
 import imageio_ffmpeg  # type: ignore[import-untyped]
-from PySide6.QtCore import qVersion
 
 from pywatermarkcleaner import __version__
 from pywatermarkcleaner.core.models import VideoMetadata
@@ -29,7 +28,6 @@ def build_diagnostics(metadata: list[VideoMetadata], errors: list[str]) -> str:
     lines = [
         f"App: PyWatermarkCleaner {__version__}",
         f"Python: {platform.python_version()}",
-        f"Qt: {qVersion()}",
         f"OpenCV: {cv2.__version__}",
         f"FFmpeg: {_ffmpeg_version()}",
         f"Platform: {platform.platform()}",

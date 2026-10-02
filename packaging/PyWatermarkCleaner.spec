@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import imageio_ffmpeg
+from PyInstaller.utils.hooks import collect_submodules
 
 
 ROOT = Path(SPEC).resolve().parents[1]
@@ -10,8 +11,13 @@ SOURCE = ROOT / "src"
 PACKAGE = SOURCE / "pywatermarkcleaner"
 FFMPEG = Path(imageio_ffmpeg.get_ffmpeg_exe())
 
+STATIC = PACKAGE / "web" / "static"
+if not (STATIC / "index.html").is_file():
+    raise SystemExit("Build the frontend first: pnpm --dir frontend install && pnpm --dir frontend build")
+
 datas = [
     (str(PACKAGE / "assets"), "pywatermarkcleaner/assets"),
+    (str(STATIC), "pywatermarkcleaner/web/static"),
 ]
 binaries = [
     (str(FFMPEG), "imageio_ffmpeg/binaries"),
@@ -21,11 +27,11 @@ common = dict(
     pathex=[str(SOURCE), str(ROOT)],
     binaries=binaries,
     datas=datas,
-    hiddenimports=["PySide6.QtSvg", "PySide6.QtWidgets"],
+    hiddenimports=collect_submodules("uvicorn"),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets"],
+    excludes=[],
     noarchive=False,
     optimize=1,
 )
