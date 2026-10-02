@@ -161,7 +161,7 @@ def test_upload_streams_into_workspace_and_is_removed(
     session = client.app.state.session  # type: ignore[attr-defined]
     stored = session.items[0].path
     assert stored.is_file()
-    assert stored.is_relative_to(session.workspace)
+    assert stored.is_relative_to(session.workspace.resolve())  # items store resolved paths
     client.delete(f"/api/videos/{state['items'][0]['id']}")
     assert not stored.exists()
 
