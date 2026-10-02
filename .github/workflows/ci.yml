@@ -21,8 +21,6 @@ jobs:
           - windows-2025
           - macos-15
           - macos-15-intel
-    env:
-      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,9 +29,21 @@ jobs:
       - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
-      - name: Install Linux GUI libraries
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Build frontend
+        run: |
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir frontend run typecheck
+          pnpm --dir frontend run lint
+          pnpm --dir frontend run test
+          pnpm --dir frontend run build
       - name: Install project
         run: uv sync --locked --extra dev
       - name: Format

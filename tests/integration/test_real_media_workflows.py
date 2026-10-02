@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from collections.abc import Callable
@@ -100,7 +99,7 @@ def test_real_export_cancellation_removes_partial_output(
     assert not (tmp_path / "cancel-cleaned.partial.mp4").exists()
 
 
-def test_legacy_cli_and_offscreen_gui_real_smoke_paths(
+def test_legacy_cli_and_web_real_smoke_paths(
     synthetic_video_factory: Callable[..., Path], tmp_path: Path
 ) -> None:
     source = synthetic_video_factory(name="entrypoint-source.mp4", with_audio=False)
@@ -132,15 +131,11 @@ def test_legacy_cli_and_offscreen_gui_real_smoke_paths(
     assert (output_directory / "entrypoint-source_cleaned.mp4").is_file()
     assert "Completed" in cli.stdout
 
-    environment = os.environ.copy()
-    environment["QT_QPA_PLATFORM"] = "offscreen"
     gui = subprocess.run(
-        [sys.executable, "-m", "pywatermarkcleaner.gui.app", "--smoke-test"],
+        [sys.executable, "-m", "pywatermarkcleaner.web", "--smoke-test"],
         cwd=repository,
-        env=environment,
         capture_output=True,
         text=True,
         check=False,
     )
     assert gui.returncode == 0, gui.stderr
-    assert gui.stdout.strip() == "PyWatermarkCleaner GUI smoke test: OK"

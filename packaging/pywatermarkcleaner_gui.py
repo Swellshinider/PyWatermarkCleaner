@@ -1,3 +1,3 @@
-from pywatermarkcleaner.gui.app import main
+from pywatermarkcleaner.web import main
 
 raise SystemExit(main())

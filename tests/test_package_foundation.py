@@ -3,7 +3,7 @@ from importlib.metadata import distribution
 import pytest
 
 import pywatermarkcleaner
-from pywatermarkcleaner import cli, core, gui
+from pywatermarkcleaner import cli, core, web
 
 
 def test_package_version_matches_distribution_metadata() -> None:
@@ -14,7 +14,7 @@ def test_package_version_matches_distribution_metadata() -> None:
 def test_package_boundaries_are_importable() -> None:
     assert core.__doc__
     assert callable(cli.main)
-    assert callable(gui.main)
+    assert callable(web.main)
 
 
 def test_cli_placeholder_entry_point_returns_deliberate_error(

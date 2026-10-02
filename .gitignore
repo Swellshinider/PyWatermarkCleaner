@@ -24,3 +24,7 @@ dist/
 **/superpowers/
 .DS_Store
 test-results/
+
+# Web frontend
+frontend/node_modules/
+src/pywatermarkcleaner/web/static/

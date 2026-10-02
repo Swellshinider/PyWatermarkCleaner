@@ -4,9 +4,10 @@
 
 Production code lives under `src/pywatermarkcleaner`:
 
-- `core/` is Qt-free and owns immutable geometry, OpenCV media/inpainting, latest-only preview, FFmpeg export, cancellation, and scheduling.
+- `core/` is UI-free and owns immutable geometry, OpenCV media/inpainting, latest-only preview, FFmpeg export, cancellation, and scheduling.
 - `cli.py` adapts those services to the current and legacy command-line interfaces.
-- `gui/` adapts them to PySide6 models, controllers, and the precision-studio Qt Widgets workbench.
+- `web/` is a FastAPI server (localhost-only, token cookie auth) that adapts them to an HTTP/SSE API and serves the built frontend.
+- `frontend/` is the Vite + React + TypeScript interface; `pnpm --dir frontend build` writes it to `src/pywatermarkcleaner/web/static/` (gitignored, required before packaging).
 - `assets/` contains the SVG icon and bundled OFL fonts used by the desktop application.
 
 Inputs and completed outputs are immutable from the application's perspective. Export writes a sibling partial file and publishes it through an atomic no-replace operation.
@@ -29,17 +30,22 @@ uv run --locked coverage run -m pytest
 uv run --locked coverage report --fail-under=85
 ```
 
-For headless GUI runs:
-
-```text
-Windows PowerShell: $env:QT_QPA_PLATFORM='offscreen'
-macOS/Linux: QT_QPA_PLATFORM=offscreen
-```
-
-Run the deterministic desktop startup check with:
+Frontend checks (run from the repository root):
 
 ```bash
-uv run --locked python -m pywatermarkcleaner.gui.app --smoke-test
+pnpm --dir frontend install --frozen-lockfile
+pnpm --dir frontend run typecheck
+pnpm --dir frontend run lint
+pnpm --dir frontend run test
+pnpm --dir frontend run build
+```
+
+For live frontend work run `uv run pywatermarkcleaner-gui --no-browser` and `pnpm --dir frontend dev` (proxies `/api` to port 8765).
+
+Run the deterministic server startup check with:
+
+```bash
+uv run --locked python -m pywatermarkcleaner.web --smoke-test
 ```
 
 Integration tests generate tiny video-only and AAC samples through the `imageio-ffmpeg` executable; no binary media fixture is tracked.
@@ -52,7 +58,7 @@ Build the portable one-folder distribution on the target operating system:
 uv run --locked pyinstaller --noconfirm --clean packaging/PyWatermarkCleaner.spec
 ```
 
-The result under `dist/PyWatermarkCleaner` contains `PyWatermarkCleaner` (windowed GUI), `PyWatermarkCleanerCLI` (console), shared libraries/assets, and the platform FFmpeg binary. PyInstaller does not cross-compile: build separately on Windows, Linux, macOS ARM64, and macOS Intel.
+The result under `dist/PyWatermarkCleaner` contains `PyWatermarkCleaner` (windowed launcher for the local web app), `PyWatermarkCleanerCLI` (console), shared libraries/assets, and the platform FFmpeg binary. PyInstaller does not cross-compile: build separately on Windows, Linux, macOS ARM64, and macOS Intel.
 
 Smoke both launchers before archiving:
 
@@ -63,11 +69,11 @@ Windows:
 
 macOS/Linux:
   dist/PyWatermarkCleaner/PyWatermarkCleanerCLI --version
-  QT_QPA_PLATFORM=offscreen dist/PyWatermarkCleaner/PyWatermarkCleaner --smoke-test
+  dist/PyWatermarkCleaner/PyWatermarkCleaner --smoke-test
 ```
 
 The tag workflow builds unsigned portable archives for `v*` tags. It does not create a GitHub Release or sign/notarize artifacts.
 
 ## Contributions
 
-Create a feature branch from an up-to-date `main`, write a failing test before production behavior, keep core Qt-free, run every quality gate, and explain user-visible changes in the pull request. Do not commit generated videos, coverage/build folders, packaged applications, or `.superpowers` scratch files.
+Create a feature branch from an up-to-date `main`, write a failing test before production behavior, keep core UI-free, run every quality gate, and explain user-visible changes in the pull request. Do not commit generated videos, coverage/build folders, packaged applications, or `.superpowers` scratch files.

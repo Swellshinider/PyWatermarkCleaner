@@ -1,13 +1,13 @@
 # PyWatermarkCleaner
 
-PyWatermarkCleaner is a cross-platform desktop application for removing a fixed watermark region from one or more videos with OpenCV inpainting. Drop in videos, draw the repair area, inspect a live optimized preview, and export full-resolution cleaned copies without overwriting the originals.
+PyWatermarkCleaner is a cross-platform local web application for removing a fixed watermark region from one or more videos with OpenCV inpainting. Drop in videos, draw the repair area, inspect a live optimized preview, and export full-resolution cleaned copies without overwriting the originals.
 
-The desktop app is the primary experience. A compatible CLI remains available for scripts and batch jobs.
+The web app runs on your machine (`127.0.0.1` only), opens in your browser, and never uploads your videos anywhere. A compatible CLI remains available for scripts and batch jobs.
 
 ## Highlights
 
 - Drag-and-drop video queue with per-video repair regions
-- Responsive silent preview while scrubbing or playing
+- Smooth native playback with audio, cleaned-frame preview when paused, and short cleaned preview clips
 - Direct draw, move, resize, pixel editing, and keyboard nudging
 - Telea and Navier-Stokes inpainting
 - Configurable parallel exports with progress, retry, per-item cancel, and cancel-all
@@ -24,22 +24,25 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first.
 git clone https://github.com/Swellshinider/PyWatermarkCleaner.git
 cd PyWatermarkCleaner
 uv sync
+pnpm --dir frontend install && pnpm --dir frontend build
 uv run pywatermarkcleaner-gui
 ```
 
-Portable release archives include Python, Qt, OpenCV, and FFmpeg. They are unsigned in v1.0.0, so Windows SmartScreen or macOS Gatekeeper may ask you to confirm the first launch.
+The last command starts the local server and opens your browser. Closing the tab stops it after a short idle period.
 
-## Desktop workflow
+Portable release archives include Python, the web interface, OpenCV, and FFmpeg. They are unsigned in v1.0.0, so Windows SmartScreen or macOS Gatekeeper may ask you to confirm the first launch.
 
-1. Drop videos onto the window or choose **Add videos**.
+## Workflow
+
+1. Drop videos onto the page or choose **Add videos**.
 2. Select a video and drag a rectangle over the watermark.
 3. Move or resize the repair aperture. Arrow keys nudge one source pixel; Shift+arrow nudges ten.
-4. Scrub or play the silent optimized preview. Hold Space to reveal the original region.
+4. Play the video normally; pause or scrub to see the cleaned frame, or render a short cleaned **Preview clip**. Hold Space to reveal the original region.
 5. Configure Telea/Navier-Stokes, radius, Fast/Balanced/Quality, output folder, and worker count as needed.
 6. Use **Apply to all** to copy the normalized region to videos with compatible dimensions.
 7. Choose **Clean videos**. Completed outputs can be revealed from the queue.
 
-The preview is downscaled to a maximum 1280-pixel long edge to remain responsive and may drop visual frames when processing falls behind. Exports always process full-resolution frames.
+Cleaned previews are downscaled to a maximum 1280-pixel long edge. Formats the browser cannot play (such as MKV or AVI) are played through a temporary H.264 proxy. Exports always process full-resolution frames.
 
 Outputs default to the platform Videos/Movies folder under `PyWatermarkCleaner` and use `<name>_cleaned.<ext>`, then `_2`, `_3`, and so on. Inputs are never overwritten. MP4/MOV/M4V/MKV use the first working H.264 encoder among NVENC, QSV, AMF, VideoToolbox, and x264. AVI uses MPEG-4 and WebM uses VP9. A batch containing AVI or WebM can instead be converted to accelerated MP4; unsupported containers visibly fall back to MP4.
 
@@ -79,13 +82,23 @@ Exit status is 0 for success, 1 when processing fails, 2 for invalid arguments/m
 - **Clean videos is disabled:** every queued item needs a valid region at least 2×2 source pixels.
 - **Export codec is unavailable:** use a release archive or reinstall `imageio-ffmpeg`; custom FFmpeg builds must contain libx264/libvpx support.
 - **Output folder is not writable/full:** choose another folder, then retry the failed row.
-- **Linux window does not open:** install the platform libraries required by Qt/OpenCV (OpenGL, EGL, XKB) for your distribution.
+- **The browser does not open:** copy the `http://127.0.0.1:<port>/?token=...` address printed in the terminal.
+- **File picker does not appear (Linux):** install Tk support (for example `python3-tk`) or drag files onto the page.
 
 The **Activity log** and **Copy diagnostics** actions provide sanitized versions and job details without copying video frames.
 
 ## Development
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for architecture, tests, CI, packaging, and contribution commands. Third-party software and font licenses are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Known limitations
+
+Tracked for follow-up work:
+
+- **Slow first play of MKV/AVI:** formats the browser cannot decode are transcoded to a temporary H.264 proxy. The whole file is converted on the first request, so long videos wait before playback starts. Fix idea: transcode in the background with progress, or stream segments.
+- **Output name collisions:** output paths are allocated when a job is submitted, so two queued files with the same stem can get the same `<name>_cleaned.<ext>`. Fix idea: reserve the name at allocation time.
+- **Untested paths:** preview clips from files with audio, the native file/folder dialogs (tkinter), and **Show in folder** have no automated coverage and need manual checks on each platform.
+- **Not yet verified in a real browser:** playback with audio, the cleaned-frame preview while paused, live export progress, and touch input.
 
 ## Deferred after v1
 
