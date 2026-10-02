@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import threading
 import time
@@ -87,10 +88,14 @@ def picked(video: Path) -> list[str]:
 
 @pytest.fixture
 def client(tmp_path: Path, exporter: FakeExporter, picked: list[str]) -> Iterator[TestClient]:
+    # Pin the output folder: the default is the user's real Videos directory.
+    settings_path = tmp_path / "config" / "settings.json"
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(json.dumps({"output_folder": str(tmp_path / "default-out")}))
     app = create_app(
         token=TOKEN,
         port=PORT,
-        settings_path=tmp_path / "config" / "settings.json",
+        settings_path=settings_path,
         exporter=exporter,
         file_picker=lambda: picked,
         folder_picker=lambda: str(tmp_path / "out"),
